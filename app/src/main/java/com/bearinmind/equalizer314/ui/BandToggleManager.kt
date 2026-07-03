@@ -35,41 +35,43 @@ class BandToggleManager(
     private val ROW_SIZE = 8
     private var isAnimating = false
 
-    private fun getRowForDisplay(displayPos: Int): LinearLayout {
-        val row = displayPos / ROW_SIZE
-        return when {
-            row == 0 -> toggleGroup
-            // Default 16-band layout keeps row 2 as the fixed bottom row.
-            !expandedMode && row == 1 -> toggleGroup2
-            // Expanded mode (issue #31): every band past row 1 (9+) lives in
-            // the scrollable extra rows so they all scroll together — row 1 of
-            // the scroll = first extra child.
-            else -> {
-                val extraIdx = if (expandedMode) row - 1 else row - 2
-                while (extraRows.childCount <= extraIdx) {
-                    val r = newToggleRow()
-                    if (extraRows.childCount > 0) {
-                        // Card-style gap above every row after the first. The
-                        // first row stays flush so the one-row scroll cap (which
-                        // measures row 0's height) isn't pushed down.
-                        (r.layoutParams as LinearLayout.LayoutParams).topMargin =
-                            (12 * activity.resources.displayMetrics.density).toInt()
-                    }
-                    extraRows.addView(r)
-                }
-                extraRows.getChildAt(extraIdx) as LinearLayout
-            }
-        }
+    private fun getRowForDisplay(displayPos: Int): LinearLayout = when {
+        displayPos < ROW_SIZE -> toggleGroup
+        // Expanded (issue #31): every band past row 1 (9+) lives in ONE
+        // horizontal-scrolling row.
+        expandedMode -> extraRows
+        // Default 16-band layout keeps row 2 as the fixed bottom row.
+        else -> toggleGroup2
     }
 
-    private fun getRowIndex(displayPos: Int): Int = displayPos % ROW_SIZE
+    private fun getRowIndex(displayPos: Int): Int =
+        if (expandedMode && displayPos >= ROW_SIZE) displayPos - ROW_SIZE
+        else displayPos % ROW_SIZE
 
-    private fun newToggleRow(): LinearLayout = LinearLayout(activity).apply {
-        layoutParams = LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT,
-        )
-        orientation = LinearLayout.HORIZONTAL
-        gravity = android.view.Gravity.CENTER
+    /** Give every button in the horizontal extra row EXACTLY the width of a
+     *  laid-out row-1 button (weights don't work inside a wrap_content
+     *  scrolling row). Buttons are constructed identically to row 1's, so with
+     *  the width cloned too the row renders pixel-identical to the fixed row 2
+     *  — same button size, same row height, same vertical footprint (#31). */
+    private fun syncExtraRowItemWidths() {
+        fun apply(refW: Int) {
+            for (i in 0 until extraRows.childCount) {
+                val child = extraRows.getChildAt(i)
+                val lp = child.layoutParams as? LinearLayout.LayoutParams ?: continue
+                if (lp.width != refW || lp.weight != 0f) {
+                    lp.width = refW
+                    lp.weight = 0f
+                    child.layoutParams = lp
+                }
+            }
+        }
+        // Row 1 is usually already laid out — clone immediately to avoid a
+        // mis-sized first frame, then refine after the next layout pass
+        // (covers cold start where row 1 hasn't been measured yet).
+        toggleGroup.getChildAt(0)?.width?.takeIf { it > 0 }?.let(::apply)
+        toggleGroup.post {
+            toggleGroup.getChildAt(0)?.width?.takeIf { it > 0 }?.let(::apply)
+        }
     }
 
     /** True when the experimental higher band cap is active (issue #31): the
@@ -135,8 +137,7 @@ class BandToggleManager(
             getRowForDisplay(bandCount).addView(createAddButton())
         }
         updateRowVisibility()
-        // (MaxHeightScrollView caps itself to one row in onMeasure, so no
-        // post-layout height fiddling is needed here.)
+        if (expandedMode && extraRows.childCount > 0) syncExtraRowItemWidths()
     }
 
     fun updateSelection(bandIndex: Int?) {

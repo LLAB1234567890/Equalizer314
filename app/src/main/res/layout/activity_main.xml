@@ -559,23 +559,28 @@
                     android:gravity="center"
                     android:visibility="gone" />
 
-                <!-- Extra toggle rows (band 17+) AND the inline "+", shown only
-                     when the experimental "Add more EQ bands" cap is raised
-                     (issue #31). Grows to content then caps + scrolls, so adding
-                     bands scrolls instead of pushing the graph/controls down. -->
-                <com.bearinmind.equalizer314.ui.MaxHeightScrollView
+                <!-- Extra band toggles (9+) AND the inline "+", shown only when
+                     the experimental "Add more EQ bands" cap is raised (#31).
+                     One HORIZONTAL scrolling row with fading edges. Wraps a
+                     single row of buttons sized identically to row 1, so its
+                     height/vertical position match the fixed row 2 exactly. -->
+                <HorizontalScrollView
                     android:id="@+id/bandToggleExtraScroll"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:visibility="gone"
-                    android:scrollbars="vertical">
+                    android:scrollbars="none"
+                    android:requiresFadingEdge="horizontal"
+                    android:fadingEdgeLength="48dp">
 
                     <LinearLayout
                         android:id="@+id/bandToggleExtraRows"
-                        android:layout_width="match_parent"
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:orientation="vertical" />
-                </com.bearinmind.equalizer314.ui.MaxHeightScrollView>
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:baselineAligned="false" />
+                </HorizontalScrollView>
 
                 <!-- (unused) kept so the BandToggleManager constructor signature
                      stays stable; the "+" is now inline in the scroll above. -->

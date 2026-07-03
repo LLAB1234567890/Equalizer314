@@ -292,6 +292,15 @@ class EqPreferencesManager(context: Context) {
     fun setHideNotificationWhenOff(enabled: Boolean) { prefs.edit().putBoolean("hideNotifWhenOff", enabled).apply() }
     fun getHideNotificationWhenOff(): Boolean = prefs.getBoolean("hideNotifWhenOff", false)
 
+    // Issue #26: DP FFT frame duration (ms). Single source of truth for the
+    // engine window: the Experimental frame slider picks one of the engine's
+    // power-of-two rungs (10/20/40/80/160/320 ms requests), and the
+    // "Low latency" (40) / "Maximum bass precision" (160) switches are
+    // shortcuts that write the same pref. Default 80 ms = Wavelet/Poweramp's
+    // frame class, ~12 Hz bass resolution.
+    fun saveDpFrameMs(ms: Float) { prefs.edit().putFloat("dpFrameMs", ms).apply() }
+    fun getDpFrameMs(): Float = prefs.getFloat("dpFrameMs", 80f)
+
     // Limiter
     fun saveLimiterEnabled(enabled: Boolean) { prefs.edit().putBoolean("limiterEnabled", enabled).apply() }
     fun getLimiterEnabled(): Boolean = prefs.getBoolean("limiterEnabled", false)

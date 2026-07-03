@@ -398,6 +398,17 @@ class EqService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+        // Tell the converter the device's real mixer sample rate so its
+        // bin-aware gain sampling matches DP's actual FFT bin layout (#26).
+        try {
+            getSystemService(AudioManager::class.java)
+                ?.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE)
+                ?.toFloatOrNull()?.takeIf { it > 0f }
+                ?.let { com.bearinmind.equalizer314.dsp.ParametricToDpConverter.deviceSampleRateHz = it }
+        } catch (_: Exception) {}
+        // Experimental frame size (#26): user-selected DP FFT window.
+        DynamicsProcessingManager.frameDurationMs =
+            EqPreferencesManager(this).getDpFrameMs()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(
                 volumeReceiver,

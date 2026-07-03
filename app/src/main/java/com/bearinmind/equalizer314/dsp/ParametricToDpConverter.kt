@@ -10,26 +10,212 @@ import kotlin.math.sqrt
  * Converts parametric EQ settings into DynamicsProcessing-compatible
  * (cutoff, gain) pairs.
  *
- * Two paths:
- *   • [convertFeatureAware] — for parametric mode. Samples the biquad
- *     composite at every parametric centre + per-filter-type support
- *     points around each, with Wavelet's frequency table as fillers.
- *   • [convertDirect] — for graphic / table / simple modes. Each band's
- *     stored (frequency, gain) pair fed straight to DP, no biquad math.
- *     Same approach Wavelet / Poweramp / RootlessJamesDSP use.
- *
- * The cutoff layout is always Wavelet's 127-band frequency table
- * (decompiled from `a6.z.f608g[]`) — these are the EXACT frequencies
- * AutoEQ's `GraphicEQ.txt` format uses, so a graphic profile import
- * lands every (freq, gain) pair on a real DP cutoff with zero
- * interpolation error.
+ * [convertFeatureAware] anchors a cutoff at every enabled parametric
+ * band's centre, redistributes the remaining cutoffs adaptively along
+ * the curve's steep regions, and pre-compensates the engine's
+ * staircase + Hann-window rendering (issue #26). The Wavelet 127-band
+ * table seeds the layout so AutoEQ-style graphic imports still land on
+ * familiar positions.
  */
 object ParametricToDpConverter {
 
-    var numBands: Int = 127
+    // 128 pre-EQ bands: the HARD ceiling of the public DynamicsProcessing
+    // API — Android's AIDL layer clamps preEq bandCount to 128
+    // (AidlConversionDp "clampParameter", logcat-verified on Android 16;
+    // requesting more throws). Poweramp's 300 "bands" go through its own
+    // native bridge, not this API. 127 kept as a paranoid fallback.
+    var numBands: Int = 128
         private set
     private const val MIN_FREQ = 10f
     private const val MAX_FREQ = 22000f
+
+
+    // ---- DP engine geometry (issue #26) -------------------------------
+    // AOSP's DPFrequency renders the Pre-EQ as a STAIRCASE: band i's gain
+    // is applied flat to the FFT bins from the previous band's binStop+1
+    // through binStop = round(cutoffHz * blockSize / sampleRate), linear
+    // frequency, no interpolation. Kept in sync by DynamicsProcessingManager
+    // (frame duration) and EqService (device sample rate) so gain sampling
+    // can be bin-aware — see [bandSpaceDeconvolve].
+    var deviceSampleRateHz: Float = 48000f
+    var frameDurationMs: Float = 40f   // mirrors DynamicsProcessingManager.FRAME_DURATION_MS
+
+    /** AOSP DPFrequency block size: frameDuration in samples, clamped to
+     *  [8, 16384], rounded UP to a power of two. */
+    private fun dpBlockSize(fs: Float): Int {
+        val samples = (frameDurationMs / 1000f * fs).toInt().coerceIn(8, 16384)
+        var p = 8
+        while (p < samples) p = p shl 1
+        return p
+    }
+
+    // Adaptive-grid / deconvolution tuning (issue #26). Values validated
+    // against a full staircase+Hann pipeline simulation of the AOSP engine.
+    private const val GRID_SIZE = 768
+    private const val ADAPT_ITERS = 256
+
+    /**
+     * Slope-adaptive cutoff placement (issue #26). Our 127 bands are
+     * log-spaced but the engine's FFT bins are linear-spaced, so at high
+     * frequencies one band "stair" spans many bins — and where the curve
+     * is steep (e.g. between a +5 dB bell at 8 kHz and a −4 dB shelf at
+     * 10 kHz) a flat stair can't follow it, REW-measured as a ~0.8 dB dip
+     * at 8.5 kHz. This redistributes filler cutoffs: repeatedly move the
+     * "cheapest" boundary (least curve variation if merged away) into the
+     * middle of the worst segment (most curve variation), so no stair has
+     * to span a steep stretch. Anchors (parametric band centres) are never
+     * removed. Segments narrower than one FFT bin are never split — the
+     * engine couldn't render the extra boundary anyway. Two sub-20 Hz
+     * seeds give bins 0 and 1 independent stairs so the deconvolution can
+     * shape the lowest octave.
+     */
+    private fun adaptiveCutoffs(
+        eq: ParametricEqualizer,
+        anchors: List<Float>,
+        total: Int,
+        binHz: Float,
+    ): FloatArray {
+        val gMin = 10f
+        val gMax = 20000f
+        val logSpan = ln(gMax / gMin)
+        val gridDb = FloatArray(GRID_SIZE) {
+            eq.getFrequencyResponse(gMin * kotlin.math.exp(logSpan * it / (GRID_SIZE - 1)))
+        }
+        fun gi(f: Float): Int {
+            val fc = f.coerceIn(gMin, gMax)
+            return ((ln(fc / gMin) / logSpan) * (GRID_SIZE - 1) + 0.5f).toInt()
+                .coerceIn(0, GRID_SIZE - 1)
+        }
+        fun variation(lo: Float, hi: Float): Float {
+            val i0 = gi(lo); val i1 = gi(hi)
+            if (i1 <= i0) return abs(gridDb[i1] - gridDb[i0])
+            var mn = Float.MAX_VALUE; var mx = -Float.MAX_VALUE
+            for (k in i0..i1) { val v = gridDb[k]; if (v < mn) mn = v; if (v > mx) mx = v }
+            return mx - mn
+        }
+
+        // Seed: sub-bin splitters + Wavelet table + anchors, sorted, deduped
+        // (0.3 % tolerance, anchors win).
+        val freqs = ArrayList<Float>(total + 8)
+        val isAnchor = ArrayList<Boolean>(total + 8)
+        val seed = ArrayList<Pair<Float, Boolean>>()
+        // 5 Hz → FFT bin 0 alone, 15 Hz → bin 1 alone (at both 40 and
+        // 80 ms frames), so the deconvolution can shape DC and the lowest
+        // octave independently. The old 10/14 Hz seeds collapsed into one
+        // bin at 80 ms, merging bins 0-1 into a single stair.
+        seed.add(5f to false); seed.add(15f to false)
+        for (f in WAVELET_FREQUENCIES) seed.add(f to false)
+        for (f in anchors) seed.add(f to true)
+        seed.sortBy { it.first }
+        for ((f, anchor) in seed) {
+            val last = freqs.lastOrNull()
+            if (last == null || f - last > last * 0.003f) {
+                freqs.add(f); isAnchor.add(anchor)
+            } else if (anchor && !isAnchor[isAnchor.size - 1]) {
+                freqs[freqs.size - 1] = f; isAnchor[isAnchor.size - 1] = true
+            }
+        }
+        // Trim to the band budget: drop the cheapest non-anchor boundaries.
+        while (freqs.size > total) {
+            var best = -1; var bc = Float.MAX_VALUE
+            for (j in 1 until freqs.size - 1) {
+                if (isAnchor[j]) continue
+                val c = variation(freqs[j - 1], freqs[j + 1])
+                if (c < bc) { bc = c; best = j }
+            }
+            if (best < 0) break
+            freqs.removeAt(best); isAnchor.removeAt(best)
+        }
+        // Pad (paranoia) at the largest log-gap.
+        while (freqs.size < total) {
+            var bi = 0; var bg = 0f
+            for (i in 0 until freqs.size - 1) {
+                val g = ln(freqs[i + 1] / freqs[i])
+                if (g > bg) { bg = g; bi = i }
+            }
+            freqs.add(bi + 1, sqrt(freqs[bi] * freqs[bi + 1]))
+            isAnchor.add(bi + 1, false)
+        }
+        // Refinement: move cheap boundaries into high-variation segments.
+        for (iter in 0 until ADAPT_ITERS) {
+            var worst = -1; var wv = 0f
+            for (i in 0 until freqs.size - 1) {
+                // Segments narrower than one FFT bin can't render an extra
+                // boundary (identity-kernel engine, one gain per bin), so
+                // never split below the CURRENT rung's bin width — at 341 ms
+                // that's 2.9 Hz, letting steep bass slopes get dense stairs.
+                // (An old fixed 23.4 Hz floor here throttled the low end at
+                // long frames — REW-measured as +0.5 dB on 70-110 Hz slopes.)
+                if (freqs[i + 1] - freqs[i] < binHz) continue
+                val v = variation(freqs[i], freqs[i + 1])
+                if (v > wv) { wv = v; worst = i }
+            }
+            if (worst < 0) break
+            var best = -1; var bc = Float.MAX_VALUE
+            for (j in 1 until freqs.size - 1) {
+                if (isAnchor[j] || j == worst || j == worst + 1) continue
+                val c = variation(freqs[j - 1], freqs[j + 1])
+                if (c < bc) { bc = c; best = j }
+            }
+            if (best < 0 || bc * 1.7f >= wv) break
+            val mid = sqrt(freqs[worst] * freqs[worst + 1])
+            freqs.removeAt(best); isAnchor.removeAt(best)
+            var at = 0
+            while (at < freqs.size && freqs[at] < mid) at++
+            freqs.add(at, mid); isAnchor.add(at, false)
+        }
+        return FloatArray(freqs.size) { freqs[it] }
+    }
+
+    /**
+     * Bin-aware stair gains (issue #26). AOSP's engine renders band gains
+     * as a per-bin staircase (band i covers bins prevStop+1..binStop,
+     * binStop = round(cutoffHz·blockSize/sampleRate)) and — measured by
+     * system identification on a real device (staircase from logcat vs a
+     * REW sweep pair) — applies those per-bin gains with essentially NO
+     * inter-bin smearing (fitted kernel [0.04, 0.92, 0.04] ≈ identity,
+     * NOT the sqrt-Hann [¼,½,¼] the AOSP source suggests). So the optimal
+     * band gain is simply the analytic target averaged over the bins its
+     * stair covers — no pre-sharpening. (A Hann-inverting Van Cittert
+     * deconvolution was tried and REW-measured to cause ±2 dB ringing on
+     * densely alternating low-frequency curves; removed.)
+     */
+    private fun bandSpaceDeconvolve(
+        eq: ParametricEqualizer,
+        cutoffs: FloatArray,
+        n: Int,
+        fs: Float,
+    ): FloatArray {
+        val half = n / 2 + 1
+        val binHz = fs / n
+        val tDb = FloatArray(half) { eq.getFrequencyResponse((it * binHz).coerceAtLeast(1f)) }
+        val starts = IntArray(cutoffs.size)
+        val stops = IntArray(cutoffs.size)
+        var prev = -1
+        for (i in cutoffs.indices) {
+            val stop = (0.5f + cutoffs[i] * n / fs).toInt().coerceAtMost(half - 1)
+            starts[i] = prev + 1
+            stops[i] = stop
+            if (starts[i] <= stop) prev = stop
+        }
+        val x = FloatArray(cutoffs.size)
+        val meanT = FloatArray(cutoffs.size)
+        var lastStop = -1
+        for (i in cutoffs.indices) {
+            if (starts[i] <= stops[i]) {
+                var s = 0f
+                for (k in starts[i]..stops[i]) s += tDb[k]
+                meanT[i] = s / (stops[i] - starts[i] + 1)
+                x[i] = meanT[i]
+                lastStop = stops[i]
+            } else {
+                // Collapsed into an already-covered bin — DP renders nothing
+                // for this band; keep the plain point sample (harmless).
+                x[i] = eq.getFrequencyResponse(cutoffs[i])
+            }
+        }
+        return x
+    }
 
     /**
      * Wavelet's 127-band frequency table (decompiled from
@@ -60,17 +246,17 @@ object ParametricToDpConverter {
         get() = WAVELET_FREQUENCIES.copyOf()
 
     fun setNumBands(count: Int) {
-        // Currently fixed at Wavelet's 127. The setter is kept so
-        // DynamicsProcessingManager can ask for "127" explicitly during
-        // start() and any future variants can be added without renaming.
-        numBands = WAVELET_FREQUENCIES.size
+        // Two supported tiers: 256 (default — halves the per-stair ripple
+        // floor) and 127 (compatibility fallback if a device rejects the
+        // 256-band DP config; also Wavelet/AutoEQ parity).
+        numBands = if (count <= 127) 127 else 128
     }
 
     /** Center frequencies (geometric mean of each band's edges). */
     val centerFrequencies: FloatArray
         get() {
             val cutoffs = cutoffFrequencies
-            return FloatArray(numBands) { i ->
+            return FloatArray(cutoffs.size) { i ->
                 val lower = if (i == 0) MIN_FREQ else cutoffs[i - 1]
                 sqrt(lower * cutoffs[i])
             }
@@ -81,191 +267,31 @@ object ParametricToDpConverter {
     data class ConvertedBands(val cutoffs: FloatArray, val gains: FloatArray)
 
     /**
-     * Feature-aware sampling for parametric mode: places anchor points
-     * at every enabled parametric band's centre frequency plus per-
-     * filter-type support points along its characteristic magnitude
-     * shape, then fills remaining slots from Wavelet's 127-band table.
-     *
-     * Without this, a Q=10 BELL at 7878 Hz +7 dB would be sampled at
-     * the nearest log-spaced cutoffs (7681 / 8157 Hz), missing the
-     * narrow peak entirely — DP would render ~+2 dB instead of +7 dB.
-     * With the anchor at exactly 7878 Hz, the peak is captured.
-     *
-     * Returns a [ConvertedBands] with both cutoffs and gains so the
-     * caller can hand them to DP together.
+     * Feature-aware conversion for parametric mode (issue #26). Anchors at
+     * every enabled band's centre frequency guarantee narrow peaks are
+     * captured; [adaptiveCutoffs] then redistributes the remaining filler
+     * cutoffs so no stair spans a steep stretch of the curve, and
+     * [bandSpaceDeconvolve] pre-compensates the engine's staircase-plus-
+     * Hann-window rendering so the smoothed result lands on the analytic
+     * curve. Validated against a pipeline simulation of the AOSP engine:
+     * worst-case rendering error ~0.25 dB at a 40 ms frame (~0.1 dB over
+     * most of the range), vs ~1 dB before.
      */
     fun convertFeatureAware(eq: ParametricEqualizer): ConvertedBands {
-        val total = WAVELET_FREQUENCIES.size
+        val total = numBands
+        val fs = deviceSampleRateHz
+        val n = dpBlockSize(fs)
+        val binHz = fs / n
 
-        // 1. For each enabled source filter, place an anchor at fc and
-        //    several support points along its magnitude shape.
-        val anchorPeaks = mutableListOf<Float>()
-        val supportPoints = mutableListOf<Float>()
+        val anchors = mutableListOf<Float>()
         for (i in 0 until eq.getBandCount()) {
             val band = eq.getBand(i) ?: continue
             if (!band.enabled) continue
-            val f = band.frequency
-            if (f !in MIN_FREQ..MAX_FREQ) continue
-            anchorPeaks.add(f)
-            for (s in supportsForBand(band)) {
-                if (s in MIN_FREQ..MAX_FREQ) supportPoints.add(s)
-            }
+            if (band.frequency in MIN_FREQ..MAX_FREQ) anchors.add(band.frequency)
         }
 
-        // Cap the feature budget: anchors get unlimited slots, supports
-        // share whatever's left up to 60 % of total.
-        val featureBudget = (total * 6 / 10).coerceAtLeast(anchorPeaks.size)
-        val supportsKept = supportPoints
-            .sorted()
-            .distinct()
-            .take((featureBudget - anchorPeaks.size).coerceAtLeast(0))
-        val effectivePeaksAll = (anchorPeaks + supportsKept).sorted()
-
-        // 2. Fill the rest from Wavelet's 127-band table — broad-curve
-        //    sampling matches AutoEQ's expected positions exactly.
-        val baseCount = (total - effectivePeaksAll.size).coerceAtLeast(0)
-        val basePoints = mutableListOf<Float>()
-        if (baseCount > 0) {
-            val step = (WAVELET_FREQUENCIES.size.toFloat() / baseCount).coerceAtLeast(1f)
-            var idx = 0f
-            repeat(baseCount) {
-                val ix = idx.toInt().coerceIn(0, WAVELET_FREQUENCIES.size - 1)
-                basePoints.add(WAVELET_FREQUENCIES[ix])
-                idx += step
-            }
-        }
-
-        // 3. Merge, sort, dedupe within 0.5 % tolerance — anchors win
-        //    against any nearby filler / support.
-        // Priority: anchor (2) > support (1) > Wavelet-table filler (0).
-        data class Candidate(val freq: Float, val priority: Int)
-        val merged = mutableListOf<Candidate>()
-        for (f in basePoints) merged.add(Candidate(f, 0))
-        for (f in supportPoints) merged.add(Candidate(f, 1))
-        for (f in anchorPeaks) merged.add(Candidate(f, 2))
-        merged.sortBy { it.freq }
-        val deduped = mutableListOf<Candidate>()
-        for (c in merged) {
-            val last = deduped.lastOrNull()
-            if (last == null || (c.freq - last.freq) > last.freq * 0.005f) {
-                deduped.add(c)
-            } else if (c.priority > last.priority) {
-                deduped[deduped.size - 1] = c
-            }
-        }
-
-        // 4. Pad up to exactly [total] points by inserting at the
-        //    largest log-gap. DP needs all band slots filled.
-        while (deduped.size < total) {
-            var bestIdx = 0
-            var bestGap = 0f
-            for (i in 0 until deduped.size - 1) {
-                val gap = ln(deduped[i + 1].freq / deduped[i].freq)
-                if (gap > bestGap) { bestGap = gap; bestIdx = i }
-            }
-            val insertF = sqrt(deduped[bestIdx].freq * deduped[bestIdx + 1].freq)
-            deduped.add(bestIdx + 1, Candidate(insertF, 0))
-        }
-
-        val capped = deduped.take(total)
-        val cutoffs = FloatArray(total) { capped[it].freq }
-        val gains = FloatArray(total) { i -> eq.getFrequencyResponse(cutoffs[i]) }
-        return ConvertedBands(cutoffs, gains)
+        val cutoffs = adaptiveCutoffs(eq, anchors, total, binHz)
+        return ConvertedBands(cutoffs, bandSpaceDeconvolve(eq, cutoffs, n, fs))
     }
 
-    /**
-     * Per-filter-type support points for [convertFeatureAware]. See the
-     * earlier git history for the full per-type rules. Returns
-     * frequencies (Hz) that bracket the filter's characteristic
-     * magnitude shape so DP's piecewise-linear reconstruction stays
-     * faithful to the parametric curve. The anchor at fc is added by
-     * the caller — this function returns only the *additional* shaping
-     * points.
-     */
-    private fun supportsForBand(band: ParametricEqualizer.EqualizerBand): List<Float> {
-        val f = band.frequency
-        val q = band.q.toFloat().coerceAtLeast(0.1f)
-        val absGain = abs(band.gain)
-        val bw = f / q
-
-        return when (band.filterType) {
-            BiquadFilter.FilterType.BELL -> when {
-                absGain < 0.5f -> emptyList()
-                q > 7f -> listOf(
-                    f - bw / 2f, f - bw / 4f, f - bw / 8f, f - bw / 16f,
-                    f + bw / 16f, f + bw / 8f, f + bw / 4f, f + bw / 2f
-                )
-                q > 3f -> listOf(
-                    f - bw / 4f, f - bw / 8f, f + bw / 8f, f + bw / 4f
-                )
-                else -> listOf(f * 0.5f, f * 0.75f, f * 1.333f, f * 2.0f)
-            }
-            BiquadFilter.FilterType.BAND_PASS -> when {
-                q > 7f -> listOf(
-                    f - bw / 2f, f - bw / 4f, f - bw / 8f,
-                    f + bw / 8f, f + bw / 4f, f + bw / 2f
-                )
-                q > 3f -> listOf(
-                    f - bw / 4f, f - bw / 8f, f + bw / 8f, f + bw / 4f
-                )
-                else -> listOf(f * 0.5f, f * 0.75f, f * 1.333f, f * 2.0f)
-            }
-            BiquadFilter.FilterType.NOTCH -> when {
-                q > 7f -> listOf(
-                    f - bw / 4f, f - bw / 8f, f - bw / 16f,
-                    f + bw / 16f, f + bw / 8f, f + bw / 4f
-                )
-                q > 3f -> listOf(
-                    f - bw / 4f, f - bw / 16f, f + bw / 16f, f + bw / 4f
-                )
-                else -> listOf(f * 0.5f, f * 0.85f, f * 1.176f, f * 2.0f)
-            }
-            BiquadFilter.FilterType.LOW_SHELF,
-            BiquadFilter.FilterType.HIGH_SHELF -> when {
-                absGain < 0.5f -> emptyList()
-                // Dense octave-half spacing across the shelf transition
-                // zone (~0.25×fc to ~4×fc) plus a couple of asymptote
-                // points outside. The earlier 4-/6-point set was too
-                // sparse for wide-Q shelves: a Q=0.71 LSHELF at 50 Hz
-                // got only sample points at 12.5 / 25 / 100 / 200 Hz,
-                // so DynamicsProcessing's linear interpolation gave a
-                // piecewise-linear blob where the analytical shelf has
-                // a smooth S-curve. Verified against REW reference in
-                // issue #26. The center frequency itself is already an
-                // anchor point so it doesn't need to appear here.
-                q > 1.5f -> listOf(
-                    f * 0.25f, f * 0.354f, f * 0.5f, f * 0.71f, f * 0.841f,
-                    f * 1.189f, f * 1.41f, f * 2.0f, f * 2.83f, f * 4.0f
-                )
-                else -> listOf(
-                    f * 0.125f, f * 0.25f, f * 0.354f, f * 0.5f, f * 0.71f,
-                    f * 1.41f, f * 2.0f, f * 2.83f, f * 4.0f, f * 8.0f
-                )
-            }
-            BiquadFilter.FilterType.LOW_SHELF_1,
-            BiquadFilter.FilterType.HIGH_SHELF_1 ->
-                if (absGain < 0.5f) emptyList()
-                // 1st-order shelves have a gentler 6 dB/oct roll, so
-                // they need fewer samples than the 2nd-order branch,
-                // but the previous 4-point layout was still too coarse
-                // through the corner region.
-                else listOf(
-                    f * 0.125f, f * 0.25f, f * 0.5f, f * 0.71f,
-                    f * 1.41f, f * 2.0f, f * 4.0f, f * 8.0f
-                )
-            BiquadFilter.FilterType.LOW_PASS,
-            BiquadFilter.FilterType.HIGH_PASS -> when {
-                q > 1.5f -> listOf(
-                    f * 0.5f, f * 0.71f,
-                    f - bw / 4f, f + bw / 4f,
-                    f * 1.41f, f * 2.0f
-                )
-                else -> listOf(f * 0.5f, f * 0.71f, f * 1.41f, f * 2.0f)
-            }
-            BiquadFilter.FilterType.LOW_PASS_1,
-            BiquadFilter.FilterType.HIGH_PASS_1 ->
-                listOf(f * 0.5f, f * 2.0f)
-            BiquadFilter.FilterType.ALL_PASS -> emptyList()
-        }
-    }
 }

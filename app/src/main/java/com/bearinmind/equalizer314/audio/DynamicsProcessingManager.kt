@@ -31,6 +31,24 @@ class DynamicsProcessingManager {
 
     companion object {
         private const val TAG = "DynamicsProcessingMgr"
+        // FFT frame duration — mirrored into ParametricToDpConverter so its
+        // deconvolution matches the engine's real bin layout. 80 ms
+        // (~12 Hz bins) default: same frame class as Wavelet's DEFAULT
+        // long-frame mode (4096 samples ≈ 85 ms) and Poweramp (85-341 ms),
+        // so the latency is market-proven — and it's what gets the rendered
+        // curve to ~0.1 dB worst-case (issue #26). 40 ms (~23 Hz bins) via
+        // the experimental "Low latency mode" toggle trades sub-100 Hz
+        // accuracy (~0.25 dB) for half the latency. Static so EqService /
+        // ExperimentalActivity can set it from prefs before start() runs.
+        const val FRAME_DURATION_DEFAULT_MS = 80f
+        const val FRAME_DURATION_LOW_LATENCY_MS = 40f
+        // "Maximum bass precision": 160 ms -> ~5.9 Hz bins. REW-measured
+        // need: at 80 ms, EQ features only 2-3 bins wide (e.g. a Q=2 bell
+        // at 60 Hz) render with ~0.9 dB smoothing; 160 ms halves the bin
+        // width. Latency-precedented: Poweramp runs up to 341 ms frames.
+        const val FRAME_DURATION_MAX_PRECISION_MS = 160f
+        @Volatile
+        var frameDurationMs = FRAME_DURATION_DEFAULT_MS
     }
 
     private var dynamicsProcessing: DynamicsProcessing? = null
@@ -94,13 +112,23 @@ class DynamicsProcessingManager {
 
         stop() // Clean up any existing instance
 
-        // 127 bands at Wavelet's exact frequency table (a6.z.f608g[]).
-        // Matches AutoEQ GraphicEQ.txt's 127 fixed positions, so a
-        // graphic profile loads with zero interpolation error.
-        ParametricToDpConverter.setNumBands(127)
-        val bandCount = ParametricToDpConverter.numBands
+        // Keep the converter's model of DP's FFT geometry in sync so its
+        // deconvolution matches the engine (issue #26).
+        ParametricToDpConverter.frameDurationMs = frameDurationMs
+        // 128 pre-EQ bands — the public API's hard ceiling (Android's AIDL
+        // layer clamps preEq bandCount to 128; requesting more throws,
+        // logcat-verified). 127 kept as a paranoid fallback.
+        for (tryBands in intArrayOf(128, 127)) {
+            ParametricToDpConverter.setNumBands(tryBands)
+            if (startWithBandCount(eq, ParametricToDpConverter.numBands)) return
+            Log.w(TAG, "DP creation failed with ${ParametricToDpConverter.numBands} bands")
+        }
+        Log.e(TAG, "DynamicsProcessing could not be started with any band count")
+    }
+
+    private fun startWithBandCount(eq: ParametricEqualizer, bandCount: Int): Boolean {
         val variant = DynamicsProcessing.VARIANT_FAVOR_FREQUENCY_RESOLUTION
-        Log.d(TAG, "DP variant=FREQUENCY bands=$bandCount")
+        Log.d(TAG, "DP variant=FREQUENCY bands=$bandCount frame=${frameDurationMs}ms")
 
         // MBC stage: always allocate the stage with at least 1 band
         // (dummy disabled passthrough when MBC is user-disabled). Wavelet
@@ -118,11 +146,12 @@ class DynamicsProcessingManager {
             0,
             true                // limiter stage enabled
         )
-        // Explicitly set FFT window length. DP's silent default is
-        // typically ~32 ms, which smears bass periods and adds pre/post-
-        // echo on transients. 10 ms = ~480-sample FFT @ 48 kHz, the
-        // transient-friendly value Wavelet uses for short-frame mode.
-        configBuilder.setPreferredFrameDuration(10f)
+        // FFT window length sets the EQ's frequency resolution: bins are
+        // spaced ~1/frameDuration LINEARLY in Hz. The original 10 ms frame
+        // (~94 Hz bins) crushed any feature narrower than ~2 bins — a Q=3
+        // bell at 300 Hz rendered +1.4 dB instead of +4 (REW-verified,
+        // issue #26). See the companion constants for the 80/40 ms choice.
+        configBuilder.setPreferredFrameDuration(frameDurationMs)
         val config = configBuilder.build()
 
         try {
@@ -180,10 +209,26 @@ class DynamicsProcessingManager {
             currentBandCount = bandCount
             isActive = true
             Log.d(TAG, "DynamicsProcessing started with $bandCount bands")
+            // Diagnostic readback (issue #26): what the ENGINE actually
+            // accepted, vs what we requested — catches OEMs clamping the
+            // frame duration / band count silently. Read via:
+            //   adb logcat -s DynamicsProcessingMgr
+            try {
+                val actual = dynamicsProcessing?.config
+                Log.i(TAG, "DP config readback: variant=${actual?.variant} " +
+                    "frameDuration=${actual?.preferredFrameDuration}ms " +
+                    "(requested ${frameDurationMs}ms) " +
+                    "preEqBands=${actual?.preEqBandCount} (requested $bandCount) " +
+                    "converter: fs=${ParametricToDpConverter.deviceSampleRateHz}Hz")
+            } catch (e: Exception) {
+                Log.w(TAG, "DP config readback failed: ${e.message}")
+            }
+            return true
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to start DynamicsProcessing", e)
+            Log.e(TAG, "Failed to start DynamicsProcessing ($bandCount bands)", e)
             dynamicsProcessing = null
             isActive = false
+            return false
         }
     }
 

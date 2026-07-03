@@ -32,6 +32,7 @@ class ExperimentalActivity : AppCompatActivity() {
         setupDpBandCount()
         setupMaxEqBands()
         setupHideNotification()
+        setupFrameSlider()
 
         // Hide the legacy "Experimental DP Engine" switch row — the
         // experimental path is now the only path. Keeping the view
@@ -65,6 +66,41 @@ class ExperimentalActivity : AppCompatActivity() {
             eqPrefs.saveMaxEqBands(cap)
             EqStateManager.MAX_BANDS = cap
         }
+    }
+
+    // Issue #26: DP FFT window ("EQ precision"). One pref (dpFrameMs),
+    // one 4-stop slider over the engine's useful power-of-two block sizes
+    // (2048/4096/8192/16384 samples). Longer windows render the bass EQ
+    // more faithfully (finer FFT bins) at the cost of audio delay --
+    // REW-measured: a 12 Hz-wide bass filter is erased at 43 ms, renders
+    // within 0.2 dB at 341 ms. Takes effect on the next EQ power cycle
+    // (the window is baked in at DynamicsProcessing creation).
+    private val frameRungsMs = floatArrayOf(40f, 80f, 160f, 320f)
+    private fun currentFrameRung(): Int {
+        val ms = eqPrefs.getDpFrameMs()
+        var best = 1; var bd = Float.MAX_VALUE
+        for (i in frameRungsMs.indices) {
+            val d = kotlin.math.abs(frameRungsMs[i] - ms)
+            if (d < bd) { bd = d; best = i }
+        }
+        return best
+    }
+
+    private fun syncFrameUi() {
+        val idx = currentFrameRung()
+        findViewById<com.google.android.material.slider.Slider>(R.id.expFrameSlider).value = idx.toFloat()
+        com.bearinmind.equalizer314.audio.DynamicsProcessingManager.frameDurationMs = frameRungsMs[idx]
+    }
+
+    private fun setupFrameSlider() {
+        val slider = findViewById<com.google.android.material.slider.Slider>(R.id.expFrameSlider)
+        slider.addOnChangeListener { _, v, fromUser ->
+            if (fromUser) {
+                eqPrefs.saveDpFrameMs(frameRungsMs[v.toInt().coerceIn(0, frameRungsMs.size - 1)])
+                syncFrameUi()
+            }
+        }
+        syncFrameUi()
     }
 
     // Issue #58: hide the foreground-service notification while the EQ is off.
