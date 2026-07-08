@@ -159,8 +159,8 @@ class EqStateManager(
         if (eqPrefs.getChannelSideEqEnabled()) {
             val lOk = eqPrefs.restoreLeftBands(leftEq)
             val rOk = eqPrefs.restoreRightBands(rightEq)
-            if (!lOk) copyEqState(bothEq, leftEq)
-            if (!rOk) copyEqState(bothEq, rightEq)
+            if (!lOk) { copyEqState(bothEq, leftEq); tagAllBands(leftEq, ParametricEqualizer.Channel.LEFT) }
+            if (!rOk) { copyEqState(bothEq, rightEq); tagAllBands(rightEq, ParametricEqualizer.Channel.RIGHT) }
             activeChannel = ActiveChannel.LEFT
             parametricEq = leftEq
         } else {
@@ -170,6 +170,7 @@ class EqStateManager(
         graphView.setParametricEqualizer(parametricEq)
         graphView.setBandSlotLabels(bandSlots)
         initBandSlots()
+        if (eqPrefs.getChannelSideEqEnabled()) sanitizeTethers()
         bandColors.clear()
         bandColors.putAll(eqPrefs.getBandColors())
         graphView.setBandColors(bandColors)
@@ -284,6 +285,18 @@ class EqStateManager(
 
     /** Copy one EQ's band state into another. Used when forking the shared
      *  "both" EQ into the per-channel L/R editors. */
+    /** Tag every band in [eq] with [ch]. Used when forking the shared EQ
+     *  into per-channel copies: forked bands must be born INDEPENDENT
+     *  (L-tagged / R-tagged), not BOTH — copyEqState rebuilds bands whose
+     *  default channel is BOTH, and BOTH-tagged bands are kept in lockstep
+     *  by syncBothBands(), which silently mirrored the Left channel onto
+     *  Right and erased any L/R divergence (reported as "enabling Channel
+     *  Side EQ applies the L side to both"). Tethering a band to Both is
+     *  per-band opt-in via the Both button / band popup (issue #53). */
+    private fun tagAllBands(eq: ParametricEqualizer, ch: ParametricEqualizer.Channel) {
+        for (i in 0 until eq.getBandCount()) eq.getBand(i)?.channel = ch
+    }
+
     private fun copyEqState(from: ParametricEqualizer, to: ParametricEqualizer) {
         to.clearBands()
         val count = from.getBandCount()
@@ -312,6 +325,12 @@ class EqStateManager(
                 if (!lOk && source !== leftEq) copyEqState(source, leftEq)
                 if (!rOk && source !== rightEq) copyEqState(source, rightEq)
             }
+            // Forked/restored-from-legacy channels must be independent, not
+            // tethered — see tagAllBands. Restored post-#53 saves keep their
+            // own accurate tags (a genuine Both tether saves as BOTH on both
+            // sides, which is consistent and safe).
+            if (!lOk) tagAllBands(leftEq, ParametricEqualizer.Channel.LEFT)
+            if (!rOk) tagAllBands(rightEq, ParametricEqualizer.Channel.RIGHT)
             activeChannel = ActiveChannel.LEFT
             parametricEq = leftEq
             // Build each side's slot layout: a channel restored from prefs uses
@@ -319,6 +338,9 @@ class EqStateManager(
             // (bothEq) layout so the arrangement carries across the fork.
             rebuildSlots(leftBandSlots, leftEq, if (lOk) eqPrefs.getSavedLeftSlots() else bothBandSlots)
             rebuildSlots(rightBandSlots, rightEq, if (rOk) eqPrefs.getSavedRightSlots() else bothBandSlots)
+            // Heal corrupt tether tags from restored data BEFORE anything can
+            // sync (and before persisting, so the healed tags stick).
+            sanitizeTethers()
             // Persist the now-authoritative L/R state (bands + slots) so it
             // survives restart.
             eqPrefs.saveLeftBands(leftEq, leftBandSlots)
@@ -489,6 +511,48 @@ class EqStateManager(
         mirrorBandTo(otherEq, otherSlots, slot, band)
     }
 
+    /** Repair tether tags after loading persisted L/R bands (issue #53).
+     *  A genuine tether keeps its two sides in lockstep, so a BOTH/BOTH
+     *  pair whose parameters DIFFER is corrupt data (saved by earlier
+     *  builds that tagged forked bands BOTH by default). Left alone, the
+     *  next sync would trust the tags and overwrite one channel with the
+     *  other — user-reported as "switching L/R applies L to both". Demote
+     *  any non-identical or one-sided BOTH pair to independent L/R tags.
+     *  Must run AFTER slots are rebuilt (pairs are matched by slot). */
+    private fun sanitizeTethers() {
+        for (i in 0 until leftEq.getBandCount()) {
+            val lb = leftEq.getBand(i) ?: continue
+            if (lb.channel != ParametricEqualizer.Channel.BOTH) continue
+            val slot = leftBandSlots.getOrNull(i)
+            val j = if (slot != null) rightBandSlots.indexOf(slot) else -1
+            val rb = if (j >= 0) rightEq.getBand(j) else null
+            val intact = rb != null &&
+                rb.channel == ParametricEqualizer.Channel.BOTH &&
+                rb.filterType == lb.filterType &&
+                kotlin.math.abs(rb.frequency - lb.frequency) < 0.01f &&
+                kotlin.math.abs(rb.gain - lb.gain) < 0.01f &&
+                kotlin.math.abs(rb.q - lb.q) < 0.001
+            if (!intact) {
+                lb.channel = ParametricEqualizer.Channel.LEFT
+                if (rb != null && rb.channel == ParametricEqualizer.Channel.BOTH) {
+                    rb.channel = ParametricEqualizer.Channel.RIGHT
+                }
+            }
+        }
+        // Sweep the right side for one-sided BOTH tags the loop above
+        // couldn't reach (no matching left slot).
+        for (j in 0 until rightEq.getBandCount()) {
+            val rb = rightEq.getBand(j) ?: continue
+            if (rb.channel != ParametricEqualizer.Channel.BOTH) continue
+            val slot = rightBandSlots.getOrNull(j)
+            val i = if (slot != null) leftBandSlots.indexOf(slot) else -1
+            val lb = if (i >= 0) leftEq.getBand(i) else null
+            if (lb == null || lb.channel != ParametricEqualizer.Channel.BOTH) {
+                rb.channel = ParametricEqualizer.Channel.RIGHT
+            }
+        }
+    }
+
     fun syncBothBands() {
         if (!eqPrefs.getChannelSideEqEnabled() || activeChannel == ActiveChannel.BOTH) return
         val activeIsLeft = activeChannel == ActiveChannel.LEFT
@@ -504,13 +568,21 @@ class EqStateManager(
             // frequently-called sync caused runaway band duplication when slot
             // sets differed between channels (issue #53).
             val j = otherSlots.indexOf(slot)
-            if (j >= 0) {
-                otherEq.updateBand(j, b.frequency, b.gain, b.filterType, b.q)
-                otherEq.getBand(j)?.let {
-                    it.enabled = b.enabled
-                    it.channel = ParametricEqualizer.Channel.BOTH
-                }
+            val other = if (j >= 0) otherEq.getBand(j) else null
+            // A tether is BILATERAL: only sync when the other channel's band
+            // at this slot is also tagged BOTH. Bands created with the default
+            // BOTH tag by paths that don't know about channels (preset loads,
+            // imports) must not silently overwrite the other side — that
+            // erased the R channel whenever the user switched L/R after
+            // loading a preset. Demote such one-sided tags to this channel so
+            // the band stops posing as tethered (self-heals persisted data).
+            if (other == null || other.channel != ParametricEqualizer.Channel.BOTH) {
+                b.channel = if (activeIsLeft) ParametricEqualizer.Channel.LEFT
+                    else ParametricEqualizer.Channel.RIGHT
+                continue
             }
+            otherEq.updateBand(j, b.frequency, b.gain, b.filterType, b.q)
+            other.enabled = b.enabled
         }
     }
 
@@ -541,6 +613,14 @@ class EqStateManager(
         if (cseEnabled) {
             loadBandsInto(leftEq, leftBands)
             loadBandsInto(rightEq, rightBands)
+            // Presets don't store channel tags, so loadBandsInto leaves the
+            // default BOTH tag on every band of BOTH channels — which the
+            // tether sync then treats as a bilateral tether and mirrors L
+            // over R on the first channel switch (issue #53 regression:
+            // "loading a preset then pressing L/R applies L to both").
+            // Preset-loaded channels are independent by definition.
+            tagAllBands(leftEq, ParametricEqualizer.Channel.LEFT)
+            tagAllBands(rightEq, ParametricEqualizer.Channel.RIGHT)
             activeChannel = ActiveChannel.LEFT
             parametricEq = leftEq
             // Persist the freshly-loaded L / R bands under their own prefs

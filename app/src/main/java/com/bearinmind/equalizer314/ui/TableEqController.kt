@@ -237,6 +237,14 @@ class TableEqController(
                     }
                     true
                 }
+                // Commit on focus loss too — without this, typing a value and
+                // then tapping another field / dismissing the keyboard leaves
+                // the edit uncommitted (the table shows the new number but the
+                // EQ and graph never change). Done-key path above also lands
+                // here via clearFocus(); onDone is idempotent so that's fine.
+                setOnFocusChangeListener { _, hasFocus ->
+                    if (!hasFocus) onDone(text.toString())
+                }
             }
         }
 
