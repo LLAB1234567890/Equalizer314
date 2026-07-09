@@ -994,7 +994,7 @@ class MbcActivity : AppCompatActivity() {
                     crossoverFreqs[selectedBand - 1] + 1f else 20f
                 val maxFreq = if (selectedBand + 1 < crossoverFreqs.size)
                     crossoverFreqs[selectedBand + 1] - 1f else 20000f
-                val v = cutoffText.text.toString().toFloatOrNull()?.coerceIn(minFreq, maxFreq) ?: minFreq
+                val v = cutoffText.text.toString().replace(',', '.').toFloatOrNull()?.coerceIn(minFreq, maxFreq) ?: minFreq
                 cutoffText.setText(v.toInt().toString())
                 cutoffSlider.value = freqToSlider(v)
                 bands[selectedBand].cutoff = v
@@ -1030,7 +1030,7 @@ class MbcActivity : AppCompatActivity() {
         }
         ratioText.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_DONE) {
-                val v = ratioText.text.toString().toFloatOrNull()?.coerceIn(1f, 50f) ?: 1f
+                val v = ratioText.text.toString().replace(',', '.').toFloatOrNull()?.coerceIn(1f, 50f) ?: 1f
                 ratioText.setText(String.format("%.2f", v))
                 ratioSlider.value = ratioToSlider(v)
                 bands[selectedBand].ratio = v
@@ -1081,7 +1081,7 @@ class MbcActivity : AppCompatActivity() {
         }
         expanderText.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_DONE) {
-                val v = expanderText.text.toString().toFloatOrNull()?.coerceIn(1f, 50f) ?: 1f
+                val v = expanderText.text.toString().replace(',', '.').toFloatOrNull()?.coerceIn(1f, 50f) ?: 1f
                 expanderText.setText(String.format("%.2f", v))
                 expanderSlider.value = ratioToSlider(v)
                 bands[selectedBand].expanderRatio = v
@@ -1271,7 +1271,7 @@ class MbcActivity : AppCompatActivity() {
 
         textField.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_DONE) {
-                val v = textField.text.toString().toFloatOrNull()?.coerceIn(min, max) ?: min
+                val v = textField.text.toString().replace(',', '.').toFloatOrNull()?.coerceIn(min, max) ?: min
                 textField.setText(String.format(fmt, v))
                 slider.value = v
                 onValue(v)

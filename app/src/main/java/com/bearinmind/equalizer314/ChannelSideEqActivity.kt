@@ -117,7 +117,7 @@ class ChannelSideEqActivity : AppCompatActivity() {
 
         input.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_DONE) {
-                val parsed = input.text.toString().toFloatOrNull()?.coerceIn(-12f, 12f) ?: 0f
+                val parsed = input.text.toString().replace(',', '.').toFloatOrNull()?.coerceIn(-12f, 12f) ?: 0f
                 val rounded = Math.round(parsed * 10f) / 10f
                 suppress = true
                 slider.value = rounded

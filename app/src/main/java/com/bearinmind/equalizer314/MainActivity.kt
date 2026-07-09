@@ -195,8 +195,10 @@ class  MainActivity : AppCompatActivity() {
     private fun reloadEqFromPrefs() {
         stateManager.initEq(eqGraphView)
         stateManager.preampGainDb = eqPrefs.getPreampGain()
-        preampSlider.value = stateManager.preampGainDb.coerceIn(-12f, 12f)
-        preampText.setText(String.format("%.1f", stateManager.preampGainDb))
+        stateManager.preampLeftDb = eqPrefs.getPreampLeft()
+        stateManager.preampRightDb = eqPrefs.getPreampRight()
+        preampSlider.value = stateManager.getActivePreamp().coerceIn(-12f, 12f)
+        preampText.setText(String.format("%.1f", stateManager.getActivePreamp()))
         eqGraphView.updateBandLevels()
         bandToggleManager.setupToggles()
         stateManager.pushEqUpdate()
@@ -1182,32 +1184,33 @@ class  MainActivity : AppCompatActivity() {
         // otherwise. Tapping the currently-active channel is a no-op too.
         channelLBtn.setOnClickListener {
             if (!eqPrefs.getChannelSideEqEnabled()) return@setOnClickListener
-            if (stateManager.activeChannel == EqStateManager.ActiveChannel.LEFT) return@setOnClickListener
+            // The Both view parks activeChannel on LEFT, so "already on L"
+            // must not short-circuit while it's active — tapping L there
+            // means "leave the Both view and edit L alone".
+            if (stateManager.activeChannel == EqStateManager.ActiveChannel.LEFT &&
+                !stateManager.bothViewActive) return@setOnClickListener
+            stateManager.exitBothView()
             stateManager.setActiveChannel(EqStateManager.ActiveChannel.LEFT)
             rebindActiveEq()
         }
         channelRBtn.setOnClickListener {
             if (!eqPrefs.getChannelSideEqEnabled()) return@setOnClickListener
-            if (stateManager.activeChannel == EqStateManager.ActiveChannel.RIGHT) return@setOnClickListener
+            if (stateManager.activeChannel == EqStateManager.ActiveChannel.RIGHT &&
+                !stateManager.bothViewActive) return@setOnClickListener
+            stateManager.exitBothView()
             stateManager.setActiveChannel(EqStateManager.ActiveChannel.RIGHT)
             rebindActiveEq()
         }
-        // "Both" — tether the currently-selected band to both channels (#53),
-        // a one-tap alternative to the band-card popup.
+        // "Both" — switch the graph to the Both edit view: it shows the left
+        // curve and every edit is applied to BOTH channels. Tap L or R (or
+        // Both again) to leave. Per-band tethering still lives in the band
+        // popup (double-tap the selected band).
         channelBothBtn.setOnClickListener {
             if (!eqPrefs.getChannelSideEqEnabled()) return@setOnClickListener
-            val idx = stateManager.selectedBandIndex ?: return@setOnClickListener
-            if (stateManager.getBandChannel(idx) == ParametricEqualizer.Channel.BOTH) {
-                // Already tethered → untether: keep the band on both channels
-                // but make them independent (don't reset/remove the other side).
-                stateManager.untetherBand(idx)
-                eqGraphView.updateBandLevels()
-                eqGraphView.setGhostEqualizer(stateManager.getInactiveChannelEq())
-                updateFilterTypeButtons(idx)
-                paintChannelButtonStyles()
-            } else {
-                onBandChannelPicked(ParametricEqualizer.Channel.BOTH)
-            }
+            if (stateManager.bothViewActive) stateManager.exitBothView()
+            else stateManager.enterBothView()
+            rebindActiveEq()
+            paintChannelButtonStyles()
         }
 
         // Settings gear: navigate to the Settings page.
@@ -2592,19 +2595,19 @@ class  MainActivity : AppCompatActivity() {
         preampSlider.addOnChangeListener { _, value, fromUser ->
             if (!fromUser) return@addOnChangeListener
             preampText.setText(String.format("%.1f", value))
-            stateManager.preampGainDb = value
-            eqPrefs.savePreampGain(value)
+            stateManager.setActivePreamp(value)
+            persistPreamps()
             stateManager.pushEqUpdate()
             updateAutoGainOffsetText()
         }
 
         preampText.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_DONE) {
-                val gain = preampText.text.toString().toFloatOrNull()?.coerceIn(-12f, 12f) ?: 0f
+                val gain = preampText.text.toString().replace(',', '.').toFloatOrNull()?.coerceIn(-12f, 12f) ?: 0f
                 preampText.setText(String.format("%.1f", gain))
                 preampSlider.value = gain
-                stateManager.preampGainDb = gain
-                eqPrefs.savePreampGain(gain)
+                stateManager.setActivePreamp(gain)
+                persistPreamps()
                 stateManager.pushEqUpdate()
                 updateAutoGainOffsetText()
                 preampText.clearFocus()
@@ -3229,7 +3232,7 @@ class  MainActivity : AppCompatActivity() {
 
     private fun applyBandHzFromInput() {
         if (isUpdatingInputs) return
-        val hz = bandHzInput.text.toString().toFloatOrNull() ?: return
+        val hz = bandHzInput.text.toString().replace(',', '.').toFloatOrNull() ?: return
         val clamped = hz.coerceIn(10f, 20000f)
         isUpdatingInputs = true
         bandHzSlider.value = hzToSlider(clamped)
@@ -3239,7 +3242,7 @@ class  MainActivity : AppCompatActivity() {
 
     private fun applyBandDbFromInput() {
         if (isUpdatingInputs) return
-        val db = bandDbInput.text.toString().toFloatOrNull() ?: return
+        val db = bandDbInput.text.toString().replace(',', '.').toFloatOrNull() ?: return
         val clamped = db.coerceIn(-20f, 20f)
         isUpdatingInputs = true
         bandDbSlider.value = clamped
@@ -3249,7 +3252,7 @@ class  MainActivity : AppCompatActivity() {
 
     private fun applyBandQFromInput() {
         if (isUpdatingInputs) return
-        val q = bandQInput.text.toString().toDoubleOrNull() ?: return
+        val q = bandQInput.text.toString().replace(',', '.').toDoubleOrNull() ?: return
         val clamped = q.coerceIn(0.1, 12.0)
         isUpdatingInputs = true
         qSlider.value = clamped.toFloat()
@@ -4146,20 +4149,16 @@ class  MainActivity : AppCompatActivity() {
             return
         }
         val active = stateManager.activeChannel
-        paint(lBtn, active == EqStateManager.ActiveChannel.LEFT)
-        paint(rBtn, active == EqStateManager.ActiveChannel.RIGHT)
-        // "Both" lights up when the selected band is tethered to both channels,
-        // and goes dark once it's detached to L/R (issue #53).
-        bothBtn?.let {
-            val selBoth = stateManager.selectedBandIndex?.let { idx ->
-                stateManager.getBandChannel(idx) == ParametricEqualizer.Channel.BOTH
-            } == true
-            paint(it, selBoth)
-        }
+        val bothView = stateManager.bothViewActive
+        paint(lBtn, !bothView && active == EqStateManager.ActiveChannel.LEFT)
+        paint(rBtn, !bothView && active == EqStateManager.ActiveChannel.RIGHT)
+        // "Both" lights up while the Both edit view is active.
+        bothBtn?.let { paint(it, bothView) }
         badge?.let {
-            when (active) {
-                EqStateManager.ActiveChannel.LEFT -> { it.text = "L"; it.visibility = View.VISIBLE }
-                EqStateManager.ActiveChannel.RIGHT -> { it.text = "R"; it.visibility = View.VISIBLE }
+            when {
+                bothView -> { it.text = "B"; it.visibility = View.VISIBLE }
+                active == EqStateManager.ActiveChannel.LEFT -> { it.text = "L"; it.visibility = View.VISIBLE }
+                active == EqStateManager.ActiveChannel.RIGHT -> { it.text = "R"; it.visibility = View.VISIBLE }
                 else -> it.visibility = View.GONE
             }
             // Re-measure and re-anchor the badge so a subtle width change
@@ -4193,9 +4192,25 @@ class  MainActivity : AppCompatActivity() {
 
     /** Rebind the graph + band toggles + input widgets after the active EQ
      *  reference changes (Channel Side EQ on/off, or L/R mode switch). */
+    /** Persist all three preamp values (shared + per-side). */
+    private fun persistPreamps() {
+        eqPrefs.savePreampGain(stateManager.preampGainDb)
+        eqPrefs.savePreampLeft(stateManager.preampLeftDb)
+        eqPrefs.savePreampRight(stateManager.preampRightDb)
+    }
+
+    /** Point the preamp slider/text at the active view's preamp value
+     *  (shared, L, R, or Both — issue: per-side preamps in CSE mode). */
+    private fun syncPreampUi() {
+        val v = stateManager.getActivePreamp()
+        preampSlider.value = v.coerceIn(-12f, 12f)
+        preampText.setText(String.format("%.1f", v))
+    }
+
     private fun rebindActiveEq() {
         val eq = stateManager.parametricEq
         eqGraphView.setParametricEqualizer(eq)
+        syncPreampUi()
         // Dotted ghost curve of the other channel in CSE mode (issue #53).
         eqGraphView.setGhostEqualizer(stateManager.getInactiveChannelEq())
         // Point the graph at the now-active channel's slot list — each channel

@@ -190,6 +190,16 @@ class EqPreferencesManager(context: Context) {
         return loadBands(eq, s, ParametricEqualizer.Channel.LEFT)
     }
 
+    /** The CSE shared "Both" layer's bands (+slots). */
+    fun saveSharedBands(eq: ParametricEqualizer, slots: List<Int>? = null) {
+        prefs.edit().putString("sharedBands", serializeBands(eq, slots)).apply()
+    }
+    fun restoreSharedBands(eq: ParametricEqualizer): Boolean {
+        val s = prefs.getString("sharedBands", null) ?: return false
+        return loadBands(eq, s)
+    }
+    fun getSavedSharedSlots(): List<Int>? = parseSavedSlots(prefs.getString("sharedBands", null))
+
     fun restoreRightBands(eq: ParametricEqualizer): Boolean {
         val s = prefs.getString("rightBands", null) ?: return false
         return loadBands(eq, s, ParametricEqualizer.Channel.RIGHT)
@@ -276,6 +286,12 @@ class EqPreferencesManager(context: Context) {
 
     // Preamp
     fun savePreampGain(gain: Float) { prefs.edit().putFloat("preampGain", gain).apply() }
+    // Per-side preamps for Channel Side EQ mode (shared preamp above is
+    // used when CSE is off).
+    fun savePreampLeft(v: Float) { prefs.edit().putFloat("preampLeftDb", v).apply() }
+    fun getPreampLeft(): Float = prefs.getFloat("preampLeftDb", 0f)
+    fun savePreampRight(v: Float) { prefs.edit().putFloat("preampRightDb", v).apply() }
+    fun getPreampRight(): Float = prefs.getFloat("preampRightDb", 0f)
     fun getPreampGain(): Float = prefs.getFloat("preampGain", 0f)
 
     // Auto-gain

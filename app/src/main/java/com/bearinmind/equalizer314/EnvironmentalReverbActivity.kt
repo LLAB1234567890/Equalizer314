@@ -276,7 +276,7 @@ class EnvironmentalReverbActivity : AppCompatActivity() {
             }
         }
         text.setOnEditorActionListener { _, _, _ ->
-            val v = text.text.toString().toFloatOrNull()
+            val v = text.text.toString().replace(',', '.').toFloatOrNull()
                 ?.coerceIn(slider.valueFrom, slider.valueTo)
             if (v != null) {
                 isUpdating = true

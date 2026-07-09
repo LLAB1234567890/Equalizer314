@@ -38,6 +38,17 @@ object ParametricToDpConverter {
     // (frame duration) and EqService (device sample rate) so gain sampling
     // can be bin-aware — see [bandSpaceDeconvolve].
     var deviceSampleRateHz: Float = 48000f
+    /** Optional shared EQ layer (the CSE "Both" curve) whose response is
+     *  ADDED to every converted channel EQ: final channel response =
+     *  channel curve + overlay curve. Set by EqStateManager while Channel
+     *  Side EQ is on; null otherwise. */
+    var overlayEq: ParametricEqualizer? = null
+
+    private fun respond(eq: ParametricEqualizer, f: Float): Float {
+        val base = eq.getFrequencyResponse(f)
+        val ov = overlayEq
+        return if (ov != null && ov !== eq) base + ov.getFrequencyResponse(f) else base
+    }
     var frameDurationMs: Float = 40f   // mirrors DynamicsProcessingManager.FRAME_DURATION_MS
 
     /** AOSP DPFrequency block size: frameDuration in samples, clamped to
@@ -79,7 +90,7 @@ object ParametricToDpConverter {
         val gMax = 20000f
         val logSpan = ln(gMax / gMin)
         val gridDb = FloatArray(GRID_SIZE) {
-            eq.getFrequencyResponse(gMin * kotlin.math.exp(logSpan * it / (GRID_SIZE - 1)))
+            respond(eq, gMin * kotlin.math.exp(logSpan * it / (GRID_SIZE - 1)))
         }
         fun gi(f: Float): Int {
             val fc = f.coerceIn(gMin, gMax)
@@ -188,7 +199,7 @@ object ParametricToDpConverter {
     ): FloatArray {
         val half = n / 2 + 1
         val binHz = fs / n
-        val tDb = FloatArray(half) { eq.getFrequencyResponse((it * binHz).coerceAtLeast(1f)) }
+        val tDb = FloatArray(half) { respond(eq, (it * binHz).coerceAtLeast(1f)) }
         val starts = IntArray(cutoffs.size)
         val stops = IntArray(cutoffs.size)
         var prev = -1
@@ -211,7 +222,7 @@ object ParametricToDpConverter {
             } else {
                 // Collapsed into an already-covered bin — DP renders nothing
                 // for this band; keep the plain point sample (harmless).
-                x[i] = eq.getFrequencyResponse(cutoffs[i])
+                x[i] = respond(eq, cutoffs[i])
             }
         }
         return x
@@ -288,6 +299,13 @@ object ParametricToDpConverter {
             val band = eq.getBand(i) ?: continue
             if (!band.enabled) continue
             if (band.frequency in MIN_FREQ..MAX_FREQ) anchors.add(band.frequency)
+        }
+        overlayEq?.takeIf { it !== eq }?.let { ov ->
+            for (i in 0 until ov.getBandCount()) {
+                val band = ov.getBand(i) ?: continue
+                if (!band.enabled) continue
+                if (band.frequency in MIN_FREQ..MAX_FREQ) anchors.add(band.frequency)
+            }
         }
 
         val cutoffs = adaptiveCutoffs(eq, anchors, total, binHz)

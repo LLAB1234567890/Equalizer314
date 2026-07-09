@@ -509,9 +509,9 @@ class GraphicEqController(
             .setTitle("Band $slotLabel")
             .setView(container)
             .setPositiveButton("OK") { _, _ ->
-                val hz = hzInput.text.toString().toFloatOrNull()?.coerceIn(10f, 20000f) ?: band.frequency
-                val db = if (isLpHp) band.gain else dbInput.text.toString().toFloatOrNull()?.coerceIn(-20f, 20f) ?: band.gain
-                val q = qInput.text.toString().toDoubleOrNull()?.coerceIn(0.1, 12.0) ?: band.q
+                val hz = hzInput.text.toString().replace(',', '.').toFloatOrNull()?.coerceIn(10f, 20000f) ?: band.frequency
+                val db = if (isLpHp) band.gain else dbInput.text.toString().replace(',', '.').toFloatOrNull()?.coerceIn(-20f, 20f) ?: band.gain
+                val q = qInput.text.toString().replace(',', '.').toDoubleOrNull()?.coerceIn(0.1, 12.0) ?: band.q
                 val b = eq.getBand(bandIndex) ?: return@setPositiveButton
                 eq.updateBand(bandIndex, hz, db, b.filterType, q)
                 hzLabel.text = formatHz(hz)

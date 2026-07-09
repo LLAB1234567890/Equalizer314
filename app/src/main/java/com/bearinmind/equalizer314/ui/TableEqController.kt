@@ -253,7 +253,7 @@ class TableEqController(
         val signedNumType = numType or android.text.InputType.TYPE_NUMBER_FLAG_SIGNED
 
         val hzInput = makeInput(String.format("%.0f", band.frequency), numType, 1f, marginEnd) { text ->
-            val hz = text.toFloatOrNull()?.coerceIn(10f, 20000f) ?: band.frequency
+            val hz = text.replace(',', '.').toFloatOrNull()?.coerceIn(10f, 20000f) ?: band.frequency
             val b = eq.getBand(bandIndex) ?: return@makeInput
             eq.updateBand(bandIndex, hz, b.gain, b.filterType, b.q)
             graphView.updateBandLevels()
@@ -269,7 +269,7 @@ class TableEqController(
             else -> false
         }
         val dbInput = makeInput(String.format("%.1f", band.gain), signedNumType, 1f, marginEnd) { text ->
-            val db = text.toFloatOrNull()?.coerceIn(-12f, 12f) ?: band.gain
+            val db = text.replace(',', '.').toFloatOrNull()?.coerceIn(-12f, 12f) ?: band.gain
             val b = eq.getBand(bandIndex) ?: return@makeInput
             eq.updateBand(bandIndex, b.frequency, db, b.filterType, b.q)
             graphView.updateBandLevels()
@@ -281,7 +281,7 @@ class TableEqController(
         row.addView(dbInput)
 
         val qInput = makeInput(String.format("%.2f", band.q), numType, 1f, 0) { text ->
-            val q = text.toDoubleOrNull()?.coerceIn(0.1, 12.0) ?: band.q
+            val q = text.replace(',', '.').toDoubleOrNull()?.coerceIn(0.1, 12.0) ?: band.q
             val b = eq.getBand(bandIndex) ?: return@makeInput
             eq.updateBand(bandIndex, b.frequency, b.gain, b.filterType, q)
             graphView.updateBandLevels()

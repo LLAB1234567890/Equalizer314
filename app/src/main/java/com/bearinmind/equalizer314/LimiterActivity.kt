@@ -569,7 +569,7 @@ class LimiterActivity : AppCompatActivity() {
             }
         }
         text.setOnEditorActionListener { _, _, _ ->
-            val v = text.text.toString().toFloatOrNull()?.coerceIn(slider.valueFrom, slider.valueTo)
+            val v = text.text.toString().replace(',', '.').toFloatOrNull()?.coerceIn(slider.valueFrom, slider.valueTo)
             if (v != null) {
                 isUpdating = true
                 slider.value = v

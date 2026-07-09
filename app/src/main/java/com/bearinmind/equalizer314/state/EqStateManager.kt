@@ -64,6 +64,10 @@ class EqStateManager(
     private val bothEq: ParametricEqualizer = ParametricEqualizer(deviceSampleRate)
     private val leftEq: ParametricEqualizer = ParametricEqualizer(deviceSampleRate)
     private val rightEq: ParametricEqualizer = ParametricEqualizer(deviceSampleRate)
+    // The CSE shared "Both" layer: its OWN curve (flat until edited),
+    // applied on top of BOTH channels — final L = leftEq + sharedEq,
+    // final R = rightEq + sharedEq (summed by the DP converter's overlay).
+    private val sharedEq: ParametricEqualizer = ParametricEqualizer(deviceSampleRate)
 
     var parametricEq: ParametricEqualizer = bothEq
         private set
@@ -80,11 +84,13 @@ class EqStateManager(
     private val bothBandSlots = mutableListOf<Int>()
     private val leftBandSlots = mutableListOf<Int>()
     private val rightBandSlots = mutableListOf<Int>()
+    private val sharedBandSlots = mutableListOf<Int>()
     val bandSlots: MutableList<Int>
-        get() = when (activeChannel) {
-            ActiveChannel.LEFT -> leftBandSlots
-            ActiveChannel.RIGHT -> rightBandSlots
-            ActiveChannel.BOTH -> bothBandSlots
+        get() = when {
+            bothViewActive -> sharedBandSlots
+            activeChannel == ActiveChannel.LEFT -> leftBandSlots
+            activeChannel == ActiveChannel.RIGHT -> rightBandSlots
+            else -> bothBandSlots
         }
     val bandColors = mutableMapOf<Int, Int>() // slot index → color int
     var selectedBandIndex: Int? = null
@@ -92,9 +98,63 @@ class EqStateManager(
     var currentEqUiMode = EqUiMode.PARAMETRIC
     var displayToBandIndex = listOf<Int>()
 
-    // Preamp & auto-gain
+    // Preamp & auto-gain. With Channel Side EQ on, each side has its own
+    // preamp (preampLeftDb / preampRightDb) applied to its DP channel;
+    // preampGainDb is the single shared preamp used when CSE is off.
     var preampGainDb: Float = 0f
+    var preampLeftDb: Float = 0f
+    var preampRightDb: Float = 0f
     var autoGainEnabled: Boolean = false
+
+    /** CSE "Both" edit view: the graph shows the SHARED layer — its own
+     *  curve, flat until edited — which is applied on top of both channels
+     *  (final L = leftEq + shared, final R = rightEq + shared). Entered /
+     *  exited via the Both button next to L / R; per-band tethering via the
+     *  band popup is unaffected. */
+    var bothViewActive = false
+        private set
+
+    /** Reset the shared layer to a flat, editable default (4 bands @ 0 dB). */
+    private fun resetSharedEq() {
+        sharedEq.clearBands()
+        val f = ParametricEqualizer.logSpacedFrequencies(16)
+        for (i in 0..3) sharedEq.addBand(f[i], 0f, BiquadFilter.FilterType.BELL)
+        sharedEq.isEnabled = true
+        rebuildSlots(sharedBandSlots, sharedEq, null)
+    }
+
+    fun enterBothView() {
+        if (!eqPrefs.getChannelSideEqEnabled()) return
+        if (sharedEq.getBandCount() == 0) resetSharedEq()
+        bothViewActive = true
+        parametricEq = sharedEq
+    }
+
+    fun exitBothView() {
+        if (!bothViewActive) return
+        bothViewActive = false
+        parametricEq = if (activeChannel == ActiveChannel.RIGHT) rightEq else leftEq
+    }
+
+    /** The preamp value belonging to the current view: shared preamp when
+     *  CSE is off, the active side's preamp otherwise. */
+    fun getActivePreamp(): Float = when {
+        !eqPrefs.getChannelSideEqEnabled() -> preampGainDb
+        bothViewActive -> preampLeftDb
+        activeChannel == ActiveChannel.RIGHT -> preampRightDb
+        else -> preampLeftDb
+    }
+
+    /** Write the preamp for the current view. In the Both view the value is
+     *  applied to BOTH sides (one slider gesture, both channels). */
+    fun setActivePreamp(v: Float) {
+        when {
+            !eqPrefs.getChannelSideEqEnabled() -> preampGainDb = v
+            bothViewActive -> { preampLeftDb = v; preampRightDb = v }
+            activeChannel == ActiveChannel.RIGHT -> preampRightDb = v
+            else -> preampLeftDb = v
+        }
+    }
 
     // Limiter — defaults match Wavelet's a6/z.java:105 baseline
     // (1 ms attack, 60 ms release, 10:1 ratio, −2 dB threshold, 0 dB
@@ -161,6 +221,8 @@ class EqStateManager(
             val rOk = eqPrefs.restoreRightBands(rightEq)
             if (!lOk) { copyEqState(bothEq, leftEq); tagAllBands(leftEq, ParametricEqualizer.Channel.LEFT) }
             if (!rOk) { copyEqState(bothEq, rightEq); tagAllBands(rightEq, ParametricEqualizer.Channel.RIGHT) }
+            if (!eqPrefs.restoreSharedBands(sharedEq)) resetSharedEq()
+            else rebuildSlots(sharedBandSlots, sharedEq, eqPrefs.getSavedSharedSlots())
             activeChannel = ActiveChannel.LEFT
             parametricEq = leftEq
         } else {
@@ -237,17 +299,30 @@ class EqStateManager(
     }
 
     fun pushEqUpdate() {
-        // Mirror any "Both" band edits to the other channel before pushing, so
-        // both channels stay in lockstep (issue #53). Runs even when not
-        // processing so the in-memory twins are correct for the next save.
+        // Mirror any tethered ("Both"-tagged) band edits between L and R —
+        // runs even when not processing so the in-memory state is correct
+        // for the next save.
         syncBothBands()
+        // The shared "Both" layer rides every conversion as an overlay while
+        // CSE is on (final channel = channel curve + shared curve).
+        ParametricToDpConverter.overlayEq =
+            if (eqPrefs.getChannelSideEqEnabled() && sharedEq.getBandCount() > 0) sharedEq else null
         if (!isProcessing) return
         val dm = eqService?.dynamicsManager ?: return
-        dm.preampGainDb = preampGainDb
         dm.autoGainEnabled = autoGainEnabled
         dm.channelBalancePercent = channelBalancePercent
-        dm.leftChannelGainDb = leftChannelGainDb
-        dm.rightChannelGainDb = rightChannelGainDb
+        if (eqPrefs.getChannelSideEqEnabled()) {
+            // Per-side preamps ride the per-channel input-gain stage on top
+            // of the Channel Side Options offsets; the shared preamp is
+            // zeroed so it can't double-apply.
+            dm.preampGainDb = 0f
+            dm.leftChannelGainDb = leftChannelGainDb + preampLeftDb
+            dm.rightChannelGainDb = rightChannelGainDb + preampRightDb
+        } else {
+            dm.preampGainDb = preampGainDb
+            dm.leftChannelGainDb = leftChannelGainDb
+            dm.rightChannelGainDb = rightChannelGainDb
+        }
         val (lEq, rEq) = getChannelEqs()
         eqService?.updateEqPerChannel(lEq, rEq)
     }
@@ -341,6 +416,8 @@ class EqStateManager(
             // Heal corrupt tether tags from restored data BEFORE anything can
             // sync (and before persisting, so the healed tags stick).
             sanitizeTethers()
+            if (!eqPrefs.restoreSharedBands(sharedEq)) resetSharedEq()
+            else rebuildSlots(sharedBandSlots, sharedEq, eqPrefs.getSavedSharedSlots())
             // Persist the now-authoritative L/R state (bands + slots) so it
             // survives restart.
             eqPrefs.saveLeftBands(leftEq, leftBandSlots)
@@ -356,6 +433,7 @@ class EqStateManager(
     fun setActiveChannel(channel: ActiveChannel) {
         if (!eqPrefs.getChannelSideEqEnabled()) return
         if (channel == ActiveChannel.BOTH) return   // BOTH is only reachable via CSE off
+        exitBothView()
         if (channel == activeChannel) return
         // Flush "Both" edits from the channel we're leaving to its twins first,
         // so the switch can't sync the wrong direction (issue #53).
@@ -555,6 +633,9 @@ class EqStateManager(
 
     fun syncBothBands() {
         if (!eqPrefs.getChannelSideEqEnabled() || activeChannel == ActiveChannel.BOTH) return
+        // In the Both view parametricEq is the SHARED layer, not a channel —
+        // tether syncing between L and R doesn't apply there.
+        if (bothViewActive) return
         val activeIsLeft = activeChannel == ActiveChannel.LEFT
         val otherEq = if (activeIsLeft) rightEq else leftEq
         val otherSlots = if (activeIsLeft) rightBandSlots else leftBandSlots
@@ -635,6 +716,7 @@ class EqStateManager(
             // the newly-loaded bothEq instead of resurrecting old divergence.
             eqPrefs.clearLeftRightBands()
         }
+        exitBothView()
     }
 
     private fun loadBandsInto(eq: ParametricEqualizer, bands: List<BandSpec>) {
@@ -712,11 +794,19 @@ class EqStateManager(
         val service = eqService ?: return
         // Sync all DSP params before starting
         val dm = service.dynamicsManager
-        dm.preampGainDb = preampGainDb
+        ParametricToDpConverter.overlayEq =
+            if (eqPrefs.getChannelSideEqEnabled() && sharedEq.getBandCount() > 0) sharedEq else null
         dm.autoGainEnabled = autoGainEnabled
         dm.channelBalancePercent = channelBalancePercent
-        dm.leftChannelGainDb = leftChannelGainDb
-        dm.rightChannelGainDb = rightChannelGainDb
+        if (eqPrefs.getChannelSideEqEnabled()) {
+            dm.preampGainDb = 0f
+            dm.leftChannelGainDb = leftChannelGainDb + preampLeftDb
+            dm.rightChannelGainDb = rightChannelGainDb + preampRightDb
+        } else {
+            dm.preampGainDb = preampGainDb
+            dm.leftChannelGainDb = leftChannelGainDb
+            dm.rightChannelGainDb = rightChannelGainDb
+        }
         dm.limiterEnabled = limiterEnabled
         dm.limiterAttackMs = limiterAttackMs
         dm.limiterReleaseMs = limiterReleaseMs
@@ -785,7 +875,7 @@ class EqStateManager(
     }
 
     fun saveState() {
-        // Keep "Both" band twins in sync before persisting (issue #53).
+        // Keep tethered twins in sync before persisting (issue #53).
         syncBothBands()
         // Don't pollute the "bands" pref with Simple-mode band data. In
         // Simple mode `parametricEq` holds the 10 fixed BELL bands —
@@ -801,6 +891,8 @@ class EqStateManager(
         persistLeftRightIfCse()
         eqPrefs.saveBandColors(bandColors)
         eqPrefs.savePreampGain(preampGainDb)
+        eqPrefs.savePreampLeft(preampLeftDb)
+        eqPrefs.savePreampRight(preampRightDb)
         eqPrefs.saveAutoGainEnabled(autoGainEnabled)
         eqPrefs.saveLimiterEnabled(limiterEnabled)
         eqPrefs.saveLimiterAttack(limiterAttackMs)
@@ -818,6 +910,7 @@ class EqStateManager(
         if (eqPrefs.getChannelSideEqEnabled()) {
             eqPrefs.saveLeftBands(leftEq, leftBandSlots)
             eqPrefs.saveRightBands(rightEq, rightBandSlots)
+            eqPrefs.saveSharedBands(sharedEq, sharedBandSlots)
         }
     }
 }
