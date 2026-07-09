@@ -459,6 +459,26 @@ class EqStateManager(
         }
     }
 
+    /** Shared "Both" layer for graph rendering — non-null with CSE on, so the
+     *  drawn curves show channel + shared (what's audible). The graph skips it
+     *  on the solid curve when that curve IS the shared layer (Both view). */
+    fun getGraphOverlayEq(): ParametricEqualizer? =
+        if (eqPrefs.getChannelSideEqEnabled() && sharedEq.getBandCount() > 0) sharedEq
+        else null
+
+    /** Ghost curves for the current view: in an L/R view the other channel; in
+     *  the Both view both channels, so editing the shared layer shows the
+     *  resulting L and R outputs move live. */
+    fun getGhostEqs(): Pair<ParametricEqualizer?, ParametricEqualizer?> {
+        if (!eqPrefs.getChannelSideEqEnabled()) return Pair(null, null)
+        if (bothViewActive) return Pair(leftEq, rightEq)
+        return when (activeChannel) {
+            ActiveChannel.LEFT -> Pair(rightEq, null)
+            ActiveChannel.RIGHT -> Pair(leftEq, null)
+            else -> Pair(null, null)
+        }
+    }
+
     // ---- Per-band channel (L / R / Both) — issue #53 --------------------
 
     /** Channel tag of the active selected band (BOTH when out of range). */

@@ -3693,9 +3693,10 @@ class  MainActivity : AppCompatActivity() {
             eqGraphView.updateBandLevels()
             updateFilterTypeButtons(stateManager.selectedBandIndex)
         }
-        // Update the dotted ghost (channels may now diverge) and the Both
+        // Update the dotted ghosts (channels may now diverge) and the Both
         // button's lit state.
-        eqGraphView.setGhostEqualizer(stateManager.getInactiveChannelEq())
+        stateManager.getGhostEqs().let { eqGraphView.setGhostEqualizer(it.first, it.second) }
+        eqGraphView.setOverlayEqualizer(stateManager.getGraphOverlayEq())
         paintChannelButtonStyles()
     }
 
@@ -4211,8 +4212,11 @@ class  MainActivity : AppCompatActivity() {
         val eq = stateManager.parametricEq
         eqGraphView.setParametricEqualizer(eq)
         syncPreampUi()
-        // Dotted ghost curve of the other channel in CSE mode (issue #53).
-        eqGraphView.setGhostEqualizer(stateManager.getInactiveChannelEq())
+        // Dotted ghost curves: other channel in L/R views, both channels in
+        // the Both view (issue #53).
+        stateManager.getGhostEqs().let { eqGraphView.setGhostEqualizer(it.first, it.second) }
+        // Shared "Both" layer summed into the drawn curves.
+        eqGraphView.setOverlayEqualizer(stateManager.getGraphOverlayEq())
         // Point the graph at the now-active channel's slot list — each channel
         // keeps its own, so a switch must refresh the labels (and the band
         // count they're sized against) or they'd lag a channel behind.
@@ -4272,9 +4276,10 @@ class  MainActivity : AppCompatActivity() {
         } else {
             refreshChannelPopoutDim()
         }
-        // Keep the dotted other-channel ghost curve in sync on every resume,
-        // incl. cold start with CSE already on (issue #53).
-        eqGraphView.setGhostEqualizer(stateManager.getInactiveChannelEq())
+        // Keep the dotted ghost curves in sync on every resume, incl. cold
+        // start with CSE already on (issue #53).
+        stateManager.getGhostEqs().let { eqGraphView.setGhostEqualizer(it.first, it.second) }
+        eqGraphView.setOverlayEqualizer(stateManager.getGraphOverlayEq())
         // Set FAB from saved power state — instant, no animation
         val savedPower = eqPrefs.getPowerState()
         com.bearinmind.equalizer314.ui.BottomNavHelper.setPowerFabInstant(this, savedPower)

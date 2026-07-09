@@ -34,6 +34,13 @@ class EqGraphView @JvmOverloads constructor(
     // The inactive channel's EQ, drawn as a dotted "ghost" curve when Channel
     // Side EQ is on (R while editing L, and vice-versa) — issue #53. Null = off.
     private var ghostEq: ParametricEqualizer? = null
+    // Second ghost for the Both view: L and R composites drawn together.
+    private var ghostEq2: ParametricEqualizer? = null
+
+    // Shared "Both" layer (CSE): summed into the solid and ghost curves so
+    // every view shows what's actually audible (channel + shared). Skipped on
+    // the solid curve when that curve IS the shared layer (Both view).
+    private var overlayEq: ParametricEqualizer? = null
     private val bandPoints = mutableListOf<BandPoint>()
     private var activeBandIndex: Int? = null
 
@@ -334,8 +341,15 @@ class EqGraphView @JvmOverloads constructor(
 
     /** Set the other-channel EQ to draw as a dotted ghost curve (issue #53),
      *  or null to hide it (non-CSE). */
-    fun setGhostEqualizer(eq: ParametricEqualizer?) {
+    fun setGhostEqualizer(eq: ParametricEqualizer?, eq2: ParametricEqualizer? = null) {
         ghostEq = eq
+        ghostEq2 = eq2
+        invalidate()
+    }
+
+    /** Shared "Both" layer to sum into the drawn curves (CSE), or null. */
+    fun setOverlayEqualizer(eq: ParametricEqualizer?) {
+        overlayEq = eq
         invalidate()
     }
 
@@ -705,9 +719,14 @@ class EqGraphView @JvmOverloads constructor(
         }
     }
 
-    /** Dotted, dimmed response curve of the inactive channel (issue #53). */
+    /** Dotted, dimmed response curves of the non-edited channels (issue #53). */
     private fun drawGhostCurve(canvas: Canvas, vPad: Float, graphWidth: Float, graphHeight: Float) {
-        val ghost = ghostEq ?: return
+        drawOneGhost(canvas, ghostEq, vPad, graphWidth, graphHeight)
+        drawOneGhost(canvas, ghostEq2, vPad, graphWidth, graphHeight)
+    }
+
+    private fun drawOneGhost(canvas: Canvas, ghost: ParametricEqualizer?, vPad: Float, graphWidth: Float, graphHeight: Float) {
+        if (ghost == null) return
         val numSamples = 220
         val logMin = log10(graphMinFreq)
         val logMax = log10(graphMaxFreq)
@@ -717,7 +736,7 @@ class EqGraphView @JvmOverloads constructor(
             val x = graphWidth * i / (numSamples - 1)
             val logFreq = logMin + (x / graphWidth) * (logMax - logMin)
             val freq = 10f.pow(logFreq)
-            val db = ghost.getFrequencyResponse(freq)
+            val db = ghost.getFrequencyResponse(freq) + (overlayEq?.getFrequencyResponse(freq) ?: 0f)
             if (db.isNaN() || db.isInfinite()) continue
             val y = vPad + graphHeight * (1f - (db - minGain) / (maxGain - minGain))
             if (!started) { path.moveTo(x, y); started = true } else path.lineTo(x, y)
@@ -755,8 +774,10 @@ class EqGraphView @JvmOverloads constructor(
             val logFreq = logMin + (x / graphWidth) * (logMax - logMin)
             val freq = 10f.pow(logFreq)
 
-            val responsedB = eq.getFrequencyResponse(freq)
-            val saturatedDb = eq.getFrequencyResponseWithSaturation(freq)
+            val ov = overlayEq
+            val overlayDb = if (ov != null && ov !== eq) ov.getFrequencyResponse(freq) else 0f
+            val responsedB = eq.getFrequencyResponse(freq) + overlayDb
+            val saturatedDb = eq.getFrequencyResponseWithSaturation(freq) + overlayDb
 
             if (responsedB.isNaN() || responsedB.isInfinite()) continue
 
