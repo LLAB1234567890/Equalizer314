@@ -822,8 +822,8 @@ class  MainActivity : AppCompatActivity() {
 
         bandToggleManager = BandToggleManager(
             this, bandToggleGroup, bandToggleGroup2, bandToggleExtraRows, bandToggleExtraScroll, bandAddButtonRow, triangleIndicator, eqGraphView, stateManager,
-            onEqChanged, onBandCountChanged, onBandSelected,
-            onBandReselected = { anchor, bandIdx -> showBandChannelPopup(anchor, bandIdx) }
+            onEqChanged, onBandCountChanged, onBandSelected
+            // Per-band L/Both/R picker popup retired — see LegacyFeatures.kt.
         )
 
         // Wire state manager callbacks
@@ -3656,49 +3656,8 @@ class  MainActivity : AppCompatActivity() {
         filterTypeGroup.addView(bypassBtn)
     }
 
-    /** Per-band L / Both / R picker (issue #53). Opened by tapping an
-     *  already-selected band card while Channel Side EQ is on; anchored to that
-     *  card. The current channel is shown checked. */
-    private fun showBandChannelPopup(anchor: View, bandIdx: Int) {
-        if (!eqPrefs.getChannelSideEqEnabled()) return
-        val current = stateManager.getBandChannel(bandIdx)
-        val items = listOf(
-            ParametricEqualizer.Channel.LEFT to "Left",
-            ParametricEqualizer.Channel.BOTH to "Both",
-            ParametricEqualizer.Channel.RIGHT to "Right",
-        )
-        val popup = android.widget.PopupMenu(this, anchor)
-        items.forEachIndexed { i, (ch, label) ->
-            popup.menu.add(0, i, i, label).apply {
-                isCheckable = true
-                isChecked = ch == current
-            }
-        }
-        popup.setOnMenuItemClickListener { mi ->
-            onBandChannelPicked(items[mi.itemId].first)
-            true
-        }
-        popup.show()
-    }
-
-    private fun onBandChannelPicked(channel: ParametricEqualizer.Channel) {
-        val idx = stateManager.selectedBandIndex ?: return
-        val movedAway = stateManager.setBandChannel(idx, channel)
-        if (movedAway) {
-            // Band left the active channel — refresh everything for the
-            // (now smaller) active channel and re-highlight.
-            rebindActiveEq()
-            reorderToggleRows(animate = false)
-        } else {
-            eqGraphView.updateBandLevels()
-            updateFilterTypeButtons(stateManager.selectedBandIndex)
-        }
-        // Update the dotted ghosts (channels may now diverge) and the Both
-        // button's lit state.
-        stateManager.getGhostEqs().let { eqGraphView.setGhostEqualizer(it.first, it.second) }
-        eqGraphView.setOverlayEqualizer(stateManager.getGraphOverlayEq())
-        paintChannelButtonStyles()
-    }
+    // Per-band L/Both/R picker popup (showBandChannelPopup /
+    // onBandChannelPicked) retired — see LegacyFeatures.kt.
 
     private fun updateFilterTypeButtons(bandIndex: Int?) {
         if (bandIndex == null) return
