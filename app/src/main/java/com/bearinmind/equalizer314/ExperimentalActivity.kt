@@ -33,6 +33,7 @@ class ExperimentalActivity : AppCompatActivity() {
         setupMaxEqBands()
         setupHideNotification()
         setupFrameSlider()
+        setupInterleave()
 
         // Hide the legacy "Experimental DP Engine" switch row — the
         // experimental path is now the only path. Keeping the view
@@ -100,7 +101,42 @@ class ExperimentalActivity : AppCompatActivity() {
                 syncFrameUi()
             }
         }
+        // Recycle the live DP only when the finger lifts — one rebuild per
+        // adjustment, not one per rung dragged across.
+        slider.addOnSliderTouchListener(object : com.google.android.material.slider.Slider.OnSliderTouchListener {
+            override fun onStartTrackingTouch(slider: com.google.android.material.slider.Slider) {}
+            override fun onStopTrackingTouch(slider: com.google.android.material.slider.Slider) {
+                requestDpRecycle()
+            }
+        })
         syncFrameUi()
+    }
+
+    /** Ask EqService to rebuild the live DP so creation-time settings
+     *  (interleave, DP Latency Window) apply immediately. No-op when the
+     *  EQ is off. The service toasts + broadcasts so MainActivity's power
+     *  FAB echoes the off→on cycle. */
+    private fun requestDpRecycle() {
+        try {
+            startService(
+                android.content.Intent(this, com.bearinmind.equalizer314.audio.EqService::class.java)
+                    .setAction(com.bearinmind.equalizer314.audio.EqService.ACTION_RECYCLE_DP)
+            )
+        } catch (_: Exception) {}
+    }
+
+    // Pre+Post EQ interleave (issue #26 follow-up): second staircase on the
+    // DP's Post-EQ stage, cutoffs offset half a stair — 256 effective stairs.
+    // Baked in at DP creation, so flipping the switch asks EqService to
+    // recycle the live DP — no manual power cycle needed.
+    private fun setupInterleave() {
+        val switch = findViewById<com.google.android.material.materialswitch.MaterialSwitch>(R.id.expInterleaveSwitch)
+        switch.isChecked = eqPrefs.getDpInterleave()
+        switch.setOnCheckedChangeListener { _, isChecked ->
+            eqPrefs.saveDpInterleave(isChecked)
+            com.bearinmind.equalizer314.audio.DynamicsProcessingManager.interleaveEnabled = isChecked
+            requestDpRecycle()
+        }
     }
 
     // Issue #58: hide the foreground-service notification while the EQ is off.

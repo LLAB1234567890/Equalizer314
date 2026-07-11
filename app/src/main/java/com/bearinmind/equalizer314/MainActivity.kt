@@ -475,6 +475,22 @@ class  MainActivity : AppCompatActivity() {
         }
     }
 
+    /** Visual echo of a settings-triggered DP recycle (interleave toggle /
+     *  DP Latency Window): the power FAB dips off then springs back on,
+     *  mirroring the engine rebuild the service just performed. */
+    private val dpRecycledReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            animatePowerFab(false)
+            com.bearinmind.equalizer314.ui.BottomNavHelper.updatePowerFab(this@MainActivity, false)
+            eqGraphView.postDelayed({
+                if (eqPrefs.getPowerState()) {
+                    animatePowerFab(true)
+                    com.bearinmind.equalizer314.ui.BottomNavHelper.updatePowerFab(this@MainActivity, true)
+                }
+            }, 550)
+        }
+    }
+
     /** Refreshes the device/preset status line above the graph in
      *  response to route changes and preset-name updates. Listens for:
      *   - ACTION_ROUTE_PRESET_APPLIED (RouteSwitchCoordinator) when a
@@ -622,6 +638,11 @@ class  MainActivity : AppCompatActivity() {
                 },
                 RECEIVER_NOT_EXPORTED
             )
+            registerReceiver(
+                dpRecycledReceiver,
+                IntentFilter(EqService.ACTION_DP_RECYCLED),
+                RECEIVER_NOT_EXPORTED
+            )
         } else {
             registerReceiver(
                 eqStoppedReceiver,
@@ -639,6 +660,11 @@ class  MainActivity : AppCompatActivity() {
                     addAction(com.bearinmind.equalizer314.audio.RouteSwitchCoordinator.ACTION_ROUTE_PRESET_APPLIED)
                     addAction(EqService.ACTION_NOTIFICATION_REFRESH)
                 }
+            )
+            @Suppress("UnspecifiedRegisterReceiverFlag")
+            registerReceiver(
+                dpRecycledReceiver,
+                IntentFilter(EqService.ACTION_DP_RECYCLED)
             )
         }
 
@@ -4315,6 +4341,7 @@ class  MainActivity : AppCompatActivity() {
         try { unregisterReceiver(eqStoppedReceiver) } catch (_: Exception) {}
         try { unregisterReceiver(eqStartedReceiver) } catch (_: Exception) {}
         try { unregisterReceiver(statusRefreshReceiver) } catch (_: Exception) {}
+        try { unregisterReceiver(dpRecycledReceiver) } catch (_: Exception) {}
         super.onDestroy()
     }
 

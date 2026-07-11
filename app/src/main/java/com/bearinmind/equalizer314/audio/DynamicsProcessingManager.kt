@@ -49,10 +49,24 @@ class DynamicsProcessingManager {
         const val FRAME_DURATION_MAX_PRECISION_MS = 160f
         @Volatile
         var frameDurationMs = FRAME_DURATION_DEFAULT_MS
+        // Experimental Pre+Post-EQ interleave (issue #26 follow-up): use
+        // BOTH DP EQ stages (128 bands each) with Post's cutoffs offset half
+        // a stair from Pre's — 256 effective stairs, roughly halving the
+        // per-stair ripple that dominates the remaining rendering error.
+        // Baked in at DP creation (needs an EQ power cycle to change), like
+        // frameDurationMs. Static so EqService / ExperimentalActivity can
+        // set it from prefs before start() runs.
+        @Volatile
+        var interleaveEnabled = false
     }
 
     private var dynamicsProcessing: DynamicsProcessing? = null
     private var currentBandCount = 0
+    // Whether the LIVE DP config was built with the Post-EQ stage allocated.
+    // Band writes must match the live config, not the static flag — the user
+    // can flip the experimental toggle while DP is running, and it only takes
+    // effect on the next power cycle.
+    private var currentInterleave = false
     private var lastEq: com.bearinmind.equalizer314.dsp.ParametricEqualizer? = null
     // Optional right-channel EQ for per-channel mode. When null, lastEq is
     // applied to both channels (original shared behavior).
@@ -123,12 +137,24 @@ class DynamicsProcessingManager {
             if (startWithBandCount(eq, ParametricToDpConverter.numBands)) return
             Log.w(TAG, "DP creation failed with ${ParametricToDpConverter.numBands} bands")
         }
+        // Paranoid fallback: some OEM could reject a config with the Post-EQ
+        // stage allocated. Retry the whole ladder single-stage.
+        if (interleaveEnabled) {
+            Log.w(TAG, "Retrying without Pre+Post interleave")
+            interleaveEnabled = false
+            for (tryBands in intArrayOf(128, 127)) {
+                ParametricToDpConverter.setNumBands(tryBands)
+                if (startWithBandCount(eq, ParametricToDpConverter.numBands)) return
+                Log.w(TAG, "DP creation failed with ${ParametricToDpConverter.numBands} bands")
+            }
+        }
         Log.e(TAG, "DynamicsProcessing could not be started with any band count")
     }
 
     private fun startWithBandCount(eq: ParametricEqualizer, bandCount: Int): Boolean {
         val variant = DynamicsProcessing.VARIANT_FAVOR_FREQUENCY_RESOLUTION
-        Log.d(TAG, "DP variant=FREQUENCY bands=$bandCount frame=${frameDurationMs}ms")
+        val useInterleave = interleaveEnabled
+        Log.d(TAG, "DP variant=FREQUENCY bands=$bandCount frame=${frameDurationMs}ms interleave=$useInterleave")
 
         // MBC stage: always allocate the stage with at least 1 band
         // (dummy disabled passthrough when MBC is user-disabled). Wavelet
@@ -142,8 +168,8 @@ class DynamicsProcessingManager {
             bandCount,          // pre-EQ band count
             true,               // MBC stage allocated
             mbcStageBandCount,
-            false,              // post-EQ disabled
-            0,
+            useInterleave,      // post-EQ stage: interleave's second staircase
+            if (useInterleave) bandCount else 0,
             true                // limiter stage enabled
         )
         // FFT window length sets the EQ's frequency resolution: bins are
@@ -156,6 +182,12 @@ class DynamicsProcessingManager {
 
         try {
             lastEq = eq
+            // Must be set BEFORE applyParametricResponse below — the initial
+            // band write reads currentInterleave to pick the conversion path,
+            // and a stale value from the previous config would write half
+            // gains with no Post stage (REW-measured: whole curve at half
+            // depth after an ON→OFF power cycle).
+            currentInterleave = useInterleave
             dynamicsProcessing = DynamicsProcessing(Int.MAX_VALUE, 0, config).apply {
                 // Stage population order matches Wavelet's a6/b0.smali:
                 // limiter → MBC → pre-EQ → setEnabled. Setting enabled
@@ -208,7 +240,7 @@ class DynamicsProcessingManager {
             }
             currentBandCount = bandCount
             isActive = true
-            Log.d(TAG, "DynamicsProcessing started with $bandCount bands")
+            Log.d(TAG, "DynamicsProcessing started with $bandCount bands (interleave=$useInterleave)")
             // Diagnostic readback (issue #26): what the ENGINE actually
             // accepted, vs what we requested — catches OEMs clamping the
             // frame duration / band count silently. Read via:
@@ -219,6 +251,7 @@ class DynamicsProcessingManager {
                     "frameDuration=${actual?.preferredFrameDuration}ms " +
                     "(requested ${frameDurationMs}ms) " +
                     "preEqBands=${actual?.preEqBandCount} (requested $bandCount) " +
+                    "postEqBands=${actual?.postEqBandCount} (interleave=$useInterleave) " +
                     "converter: fs=${ParametricToDpConverter.deviceSampleRateHz}Hz")
             } catch (e: Exception) {
                 Log.w(TAG, "DP config readback failed: ${e.message}")
@@ -354,20 +387,61 @@ class DynamicsProcessingManager {
         // biquad-summed value the on-screen graph draws. This way the
         // audio always agrees with the graph, regardless of whether the
         // user is editing in parametric / graphic / table / simple mode.
-        val l = ParametricToDpConverter.convertFeatureAware(leftEq)
-        val cutoffs = l.cutoffs
-        val leftGains = l.gains
-        val rightGains = if (leftEq === rightEq) leftGains.copyOf()
-            else ParametricToDpConverter.convertFeatureAware(rightEq).gains
+        val useInterleave = currentInterleave
+        val cutoffs: FloatArray
+        val leftGains: FloatArray
+        val rightGains: FloatArray
+        // Interleave (issue #26 follow-up): Post-EQ carries a second
+        // staircase offset half a stair from Pre's, holding the residual
+        // ripple. Null when the live config has no Post-EQ stage.
+        val postCutoffs: FloatArray?
+        val leftPostGains: FloatArray?
+        val rightPostGains: FloatArray?
+        if (useInterleave) {
+            val li = ParametricToDpConverter.convertInterleaved(leftEq)
+            cutoffs = li.preCutoffs
+            leftGains = li.preGains
+            postCutoffs = li.postCutoffs
+            leftPostGains = li.postGains
+            if (leftEq === rightEq) {
+                rightGains = leftGains.copyOf()
+                rightPostGains = leftPostGains.copyOf()
+            } else {
+                val ri = ParametricToDpConverter.convertInterleaved(rightEq)
+                rightGains = ri.preGains
+                rightPostGains = ri.postGains
+            }
+        } else {
+            val l = ParametricToDpConverter.convertFeatureAware(leftEq)
+            cutoffs = l.cutoffs
+            leftGains = l.gains
+            rightGains = if (leftEq === rightEq) leftGains.copyOf()
+                else ParametricToDpConverter.convertFeatureAware(rightEq).gains
+            postCutoffs = null
+            leftPostGains = null
+            rightPostGains = null
+        }
 
         // Auto-gain: bring the loudest band to ≤ 0 dB. Applied as a flat
         // shift to all bands so it preserves EQ shape.
         if (autoGainEnabled) {
             var peak = Float.NEGATIVE_INFINITY
-            for (g in leftGains) if (g > peak) peak = g
-            for (g in rightGains) if (g > peak) peak = g
+            if (useInterleave && leftPostGains != null && rightPostGains != null) {
+                // Split-half: each stage carries HALF the curve, so the true
+                // response peak is ~2× a single stage's gain. Scan both
+                // stages' full-curve equivalents.
+                for (g in leftGains) if (2f * g > peak) peak = 2f * g
+                for (g in rightGains) if (2f * g > peak) peak = 2f * g
+                for (g in leftPostGains) if (2f * g > peak) peak = 2f * g
+                for (g in rightPostGains) if (2f * g > peak) peak = 2f * g
+            } else {
+                for (g in leftGains) if (g > peak) peak = g
+                for (g in rightGains) if (g > peak) peak = g
+            }
             lastAutoGainOffset = if (peak > 0f) -peak else 0f
             if (lastAutoGainOffset != 0f) {
+                // Flat shift on the Pre stage only — the per-bin total moves
+                // by exactly the offset either way, and Post stays pure shape.
                 for (i in leftGains.indices) leftGains[i] += lastAutoGainOffset
                 for (i in rightGains.indices) rightGains[i] += lastAutoGainOffset
             }
@@ -400,6 +474,16 @@ class DynamicsProcessingManager {
                 val b = leftEq.getBand(i) ?: continue
                 Log.d(TAG, "  src[%2d] type=%-12s freq=%-8.1f Hz gain=%+6.2f dB Q=%.3f enabled=%s"
                     .format(i, b.filterType.name, b.frequency, b.gain, b.q, b.enabled))
+            }
+            if (useInterleave && postCutoffs != null && leftPostGains != null && rightPostGains != null) {
+                val psb = StringBuilder("[DUMP] interleave POST stage (cutoff Hz, L gain dB, R gain dB):\n")
+                for (i in postCutoffs.indices) {
+                    psb.append("  [%3d] cutoff=%-9.1f L=%+6.2f R=%+6.2f\n"
+                        .format(i, postCutoffs[i], leftPostGains[i], rightPostGains[i]))
+                }
+                psb.toString().split('\n').forEach { line ->
+                    if (line.isNotEmpty()) Log.d(TAG, line)
+                }
             }
         }
 
@@ -441,6 +525,18 @@ class DynamicsProcessingManager {
                 }
                 dp.setPreEqByChannelIndex(0, leftEqObj)
                 dp.setPreEqByChannelIndex(1, rightEqObj)
+                // Interleave: second staircase on the Post-EQ stage. Only
+                // when the live config allocated it (currentInterleave).
+                if (postCutoffs != null && leftPostGains != null && rightPostGains != null) {
+                    val leftPostObj = DynamicsProcessing.Eq(true, true, n)
+                    val rightPostObj = DynamicsProcessing.Eq(true, true, n)
+                    for (i in 0 until n) {
+                        leftPostObj.setBand(i, DynamicsProcessing.EqBand(true, postCutoffs[i], leftPostGains[i]))
+                        rightPostObj.setBand(i, DynamicsProcessing.EqBand(true, postCutoffs[i], rightPostGains[i]))
+                    }
+                    dp.setPostEqByChannelIndex(0, leftPostObj)
+                    dp.setPostEqByChannelIndex(1, rightPostObj)
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "DP band write failed", e)
             } finally {

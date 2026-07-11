@@ -317,6 +317,12 @@ class EqPreferencesManager(context: Context) {
     fun saveDpFrameMs(ms: Float) { prefs.edit().putFloat("dpFrameMs", ms).apply() }
     fun getDpFrameMs(): Float = prefs.getFloat("dpFrameMs", 80f)
 
+    // Experimental Pre+Post-EQ interleave (issue #26 follow-up): render the
+    // EQ across both DP EQ stages with offset cutoffs — 256 effective stairs.
+    // Baked in at DP creation; needs an EQ power cycle to take effect.
+    fun saveDpInterleave(enabled: Boolean) { prefs.edit().putBoolean("dpInterleave", enabled).apply() }
+    fun getDpInterleave(): Boolean = prefs.getBoolean("dpInterleave", false)
+
     // Limiter
     fun saveLimiterEnabled(enabled: Boolean) { prefs.edit().putBoolean("limiterEnabled", enabled).apply() }
     fun getLimiterEnabled(): Boolean = prefs.getBoolean("limiterEnabled", false)

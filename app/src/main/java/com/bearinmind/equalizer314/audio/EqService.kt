@@ -29,6 +29,8 @@ class EqService : Service() {
         /** Re-evaluate the notification (e.g. after the "Hide notification"
          *  setting changes while the EQ is off) — issue #58. */
         const val ACTION_REFRESH_NOTIFICATION = "com.bearinmind.equalizer314.REFRESH_NOTIFICATION"
+        const val ACTION_RECYCLE_DP = "com.bearinmind.equalizer314.RECYCLE_DP"
+        const val ACTION_DP_RECYCLED = "com.bearinmind.equalizer314.DP_RECYCLED"
         /** Tile-side counterpart to [ACTION_STOP]. Loads the persisted
          *  EQ state and starts DynamicsProcessing without needing
          *  MainActivity to be running. */
@@ -407,8 +409,11 @@ class EqService : Service() {
                 ?.let { com.bearinmind.equalizer314.dsp.ParametricToDpConverter.deviceSampleRateHz = it }
         } catch (_: Exception) {}
         // Experimental frame size (#26): user-selected DP FFT window.
-        DynamicsProcessingManager.frameDurationMs =
-            EqPreferencesManager(this).getDpFrameMs()
+        // And the Pre+Post interleave toggle — both baked in at DP creation.
+        EqPreferencesManager(this).let { p ->
+            DynamicsProcessingManager.frameDurationMs = p.getDpFrameMs()
+            DynamicsProcessingManager.interleaveEnabled = p.getDpInterleave()
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(
                 volumeReceiver,
@@ -520,6 +525,25 @@ class EqService : Service() {
                 // meaningful if the service is already running; never forces
                 // foreground (started via startService, no FGS contract).
                 updateNotification()
+                return START_NOT_STICKY
+            }
+            ACTION_RECYCLE_DP -> {
+                // Rebuild the live DP in place so settings that are baked in
+                // at creation (Pre+Post interleave, DP Latency Window) apply
+                // without a manual power cycle. Same post-reattach sequence
+                // as the watchdog / route-change paths. No-op when the EQ is
+                // off or running session-based.
+                if (dynamicsManager.reattachActive()) {
+                    applyPersistedMbcConfig()
+                    syncSystemSoundBypassFromCurrent()
+                    updateNotification()
+                    Log.d(TAG, "DP recycled on request (settings change)")
+                    android.widget.Toast.makeText(
+                        this, "DP Power Cycled", android.widget.Toast.LENGTH_SHORT
+                    ).show()
+                    // Let MainActivity echo the off→on cycle on the power FAB.
+                    sendBroadcast(Intent(ACTION_DP_RECYCLED).setPackage(packageName))
+                }
                 return START_NOT_STICKY
             }
             ACTION_STOP -> {
