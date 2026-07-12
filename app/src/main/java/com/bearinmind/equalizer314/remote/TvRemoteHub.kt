@@ -91,15 +91,30 @@ object TvRemoteHub {
             MODE_SERVER -> startServer(context)
             else -> status("")
         }
+        // Pin EqService foreground while a role is active (survives app
+        // switches on the TV) and retitle the notification; mode Off just
+        // refreshes back to the normal Online/Offline title.
+        try {
+            val i = android.content.Intent(
+                context.applicationContext,
+                com.bearinmind.equalizer314.audio.EqService::class.java,
+            ).setAction(com.bearinmind.equalizer314.audio.EqService.ACTION_TVMODE_REFRESH)
+            if (mode != MODE_OFF && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                context.applicationContext.startForegroundService(i)
+            } else {
+                context.applicationContext.startService(i)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "TV mode service refresh failed", e)
+        }
     }
 
-    /** Re-arm the persisted mode on app start (server survives UI death via
-     *  this being re-called from MainActivity.onCreate). Client mode does
-     *  not auto-reconnect — discovery needs the Experimental screen. */
-    fun ensureModeStarted(context: Context) {
-        when (getMode(context)) {
-            MODE_SERVER -> if (server == null) startServer(context)
-            else -> {}
+    /** TV Mode is session-only: the server/client live in this process, so
+     *  nothing survives a cold start — reset the persisted mode to Off so
+     *  the app never launches "armed" from a previous session. */
+    fun resetModeOnColdStart(context: Context) {
+        if (server == null && client == null && getMode(context) != MODE_OFF) {
+            prefs(context).edit().putInt(KEY_MODE, MODE_OFF).apply()
         }
     }
 
@@ -109,7 +124,13 @@ object TvRemoteHub {
             getState = { stateProvider?.invoke() ?: "{}" },
             applyState = { st -> applyRemoteState(st) },
             onStatus = { msg -> status(msg) },
-            onClientsChanged = { n -> serverClientsListener?.invoke(n) },
+            onClientsChanged = { n ->
+                // Hub owns the touch lock so it works no matter which
+                // screen is up; extra listeners (e.g. the Experimental
+                // card's PIN popup auto-dismiss) ride along.
+                RemoteScrim.setActive(n > 0)
+                serverClientsListener?.invoke(n)
+            },
         )
         server = s
         s.start()

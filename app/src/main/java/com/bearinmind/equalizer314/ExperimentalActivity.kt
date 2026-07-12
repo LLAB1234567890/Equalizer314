@@ -173,6 +173,8 @@ class ExperimentalActivity : AppCompatActivity() {
 
         hub.statusListener = { msg -> status.text = msg }
         status.text = hub.lastStatus()
+        // Auto-dismiss the PIN popup the moment a remote connects.
+        hub.serverClientsListener = { n -> if (n > 0) tvPinDialog?.dismiss() }
 
         val mode = hub.getMode(this)
         group.check(
@@ -326,7 +328,9 @@ class ExperimentalActivity : AppCompatActivity() {
         }
     }
 
-    /** Server-mode PIN popup — the pairing code, house dialog style. */
+    /** Server-mode PIN popup — the pairing code, house dialog style.
+     *  Auto-dismisses when a remote connects; Cancel backs out of TV mode. */
+    private var tvPinDialog: android.app.AlertDialog? = null
     private fun showTvPinDialog() {
         val pin = com.bearinmind.equalizer314.remote.TvRemoteHub.server?.pin
         if (pin.isNullOrEmpty() || isFinishing) return
@@ -349,16 +353,24 @@ class ExperimentalActivity : AppCompatActivity() {
             setPadding(0, 0, 0, (16 * density).toInt())
         })
         root.addView(styledDialogDivider())
-        val okBtn = styledDialogButton("OK", isCancel = false).apply {
+        val cancelBtn = styledDialogButton("Cancel", isCancel = true).apply {
             layoutParams = android.widget.LinearLayout.LayoutParams(
                 android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
                 android.widget.LinearLayout.LayoutParams.WRAP_CONTENT)
         }
-        root.addView(okBtn)
+        root.addView(cancelBtn)
         val dialog = android.app.AlertDialog.Builder(this, R.style.Theme_Equalizer314_Dialog)
             .setView(root)
             .create()
-        okBtn.setOnClickListener { dialog.dismiss() }
+        dialog.setOnDismissListener { if (tvPinDialog === dialog) tvPinDialog = null }
+        cancelBtn.setOnClickListener {
+            // Cancel = back out of TV mode entirely (the group listener
+            // handles the teardown).
+            dialog.dismiss()
+            findViewById<com.google.android.material.button.MaterialButtonToggleGroup>(R.id.expTvModeGroup)
+                .check(R.id.expTvModeOff)
+        }
+        tvPinDialog = dialog
         dialog.show()
     }
 
@@ -461,6 +473,8 @@ class ExperimentalActivity : AppCompatActivity() {
         val hub = com.bearinmind.equalizer314.remote.TvRemoteHub
         val (host, port) = foundTvs[name] ?: return
         stopTvDiscovery()
+        // Chromecast-style pair-once: a stored token from an earlier pairing
+        // skips the PIN; first contact with a device still requires it.
         if (!hub.needsPairing(this, name)) {
             hub.connectClient(this, name, host, port, null)
             return
@@ -528,9 +542,25 @@ class ExperimentalActivity : AppCompatActivity() {
         dialog.show()
     }
 
+    override fun onPause() {
+        super.onPause()
+        // Leaving the screen with TV Mode armed but NOTHING connected =
+        // accidental — reset to Off so no orphaned server/scan lingers.
+        // A live connection (either role) is deliberate and survives.
+        val hub = com.bearinmind.equalizer314.remote.TvRemoteHub
+        val connected = (hub.server?.connectedRemotes() ?: 0) > 0 ||
+            hub.client?.connected == true
+        if (hub.getMode(this) != com.bearinmind.equalizer314.remote.TvRemoteHub.MODE_OFF && !connected) {
+            hub.setMode(this, com.bearinmind.equalizer314.remote.TvRemoteHub.MODE_OFF)
+            findViewById<com.google.android.material.button.MaterialButtonToggleGroup>(R.id.expTvModeGroup)
+                ?.check(R.id.expTvModeOff)
+        }
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         com.bearinmind.equalizer314.remote.TvRemoteHub.statusListener = null
+        com.bearinmind.equalizer314.remote.TvRemoteHub.serverClientsListener = null
         stopTvDiscovery()
     }
 

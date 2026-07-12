@@ -31,6 +31,7 @@ class EqService : Service() {
         const val ACTION_REFRESH_NOTIFICATION = "com.bearinmind.equalizer314.REFRESH_NOTIFICATION"
         const val ACTION_RECYCLE_DP = "com.bearinmind.equalizer314.RECYCLE_DP"
         const val ACTION_DP_RECYCLED = "com.bearinmind.equalizer314.DP_RECYCLED"
+        const val ACTION_TVMODE_REFRESH = "com.bearinmind.equalizer314.TVMODE_REFRESH"
         /** Tile-side counterpart to [ACTION_STOP]. Loads the persisted
          *  EQ state and starts DynamicsProcessing without needing
          *  MainActivity to be running. */
@@ -527,6 +528,21 @@ class EqService : Service() {
                 updateNotification()
                 return START_NOT_STICKY
             }
+            ACTION_TVMODE_REFRESH -> {
+                // TV Mode toggled. While a link role (TV/Remote) is active the
+                // service must hold FOREGROUND even with DP off — otherwise
+                // Android's cached-app freezer suspends the process when the
+                // user switches apps and the LAN socket goes silent ("sync
+                // stops when I leave the app"). Also retitles the notification
+                // (Remote / Remote Controlled).
+                if (com.bearinmind.equalizer314.remote.TvRemoteHub.getMode(this) !=
+                    com.bearinmind.equalizer314.remote.TvRemoteHub.MODE_OFF) {
+                    safeStartForeground()
+                } else {
+                    updateNotification()
+                }
+                return START_NOT_STICKY
+            }
             ACTION_RECYCLE_DP -> {
                 // Rebuild the live DP in place so settings that are baked in
                 // at creation (Pre+Post interleave, DP Latency Window) apply
@@ -967,7 +983,11 @@ class EqService : Service() {
         // Issue #58: optionally hide the notification entirely while the EQ is
         // off (drop foreground + cancel). It comes back when DP starts again
         // (startEq re-enters foreground).
-        if (!dynamicsManager.isActive && EqPreferencesManager(this).getHideNotificationWhenOff()) {
+        // TV Mode pins the service foreground regardless of DP state — never
+        // drop the notification while a link role is active.
+        val tvModeOn = com.bearinmind.equalizer314.remote.TvRemoteHub.getMode(this) !=
+            com.bearinmind.equalizer314.remote.TvRemoteHub.MODE_OFF
+        if (!tvModeOn && !dynamicsManager.isActive && EqPreferencesManager(this).getHideNotificationWhenOff()) {
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N)
                     stopForeground(STOP_FOREGROUND_REMOVE)
@@ -1048,7 +1068,11 @@ class EqService : Service() {
         val maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
         val volumePercent = if (maxVol > 0) (currentVol * 100 / maxVol) else 0
 
-        val title = if (isOn) "Equalizer314: Online" else "Equalizer314: Offline"
+        val title = when (com.bearinmind.equalizer314.remote.TvRemoteHub.getMode(this)) {
+            com.bearinmind.equalizer314.remote.TvRemoteHub.MODE_SERVER -> "Equalizer314: Remote Controlled"
+            com.bearinmind.equalizer314.remote.TvRemoteHub.MODE_CLIENT -> "Equalizer314: Remote"
+            else -> if (isOn) "Equalizer314: Online" else "Equalizer314: Offline"
+        }
         val actionLabel = if (isOn) "Turn Off" else "Turn On"
         val volumeLine = "Volume: $volumePercent%"
 

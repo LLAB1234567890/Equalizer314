@@ -649,10 +649,7 @@ class  MainActivity : AppCompatActivity() {
         }
         com.bearinmind.equalizer314.remote.TvRemoteHub.stateApplier = { obj -> applyRemotePresetJson(obj) }
         stateManager.onEqPushed = { com.bearinmind.equalizer314.remote.TvRemoteHub.onLocalEqChanged() }
-        com.bearinmind.equalizer314.remote.TvRemoteHub.serverClientsListener = { n ->
-            com.bearinmind.equalizer314.remote.RemoteScrim.setActive(n > 0)
-        }
-        com.bearinmind.equalizer314.remote.TvRemoteHub.ensureModeStarted(this)
+        com.bearinmind.equalizer314.remote.TvRemoteHub.resetModeOnColdStart(this)
         com.bearinmind.equalizer314.remote.TvRemoteHub.onUiReady()
         com.bearinmind.equalizer314.remote.RemoteScrim.setActive(
             (com.bearinmind.equalizer314.remote.TvRemoteHub.server?.connectedRemotes() ?: 0) > 0
