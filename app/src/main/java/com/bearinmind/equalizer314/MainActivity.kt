@@ -2577,6 +2577,14 @@ class  MainActivity : AppCompatActivity() {
             }
         }
         obj.optJSONObject("nav")?.let { applyRemoteNav(it) }
+        // Remote changes never passed through the local preset/power UI
+        // paths that normally poke the notification — refresh it explicitly
+        // so the Preset / state lines don't sit stale until the next
+        // volume tick.
+        sendBroadcast(
+            Intent(com.bearinmind.equalizer314.audio.EqService.ACTION_NOTIFICATION_REFRESH)
+                .setPackage(packageName)
+        )
         // While a remote is driving this device, keep the app-wide touch
         // lock up (re-arms it after a local long-press takeover too).
         if (com.bearinmind.equalizer314.remote.TvRemoteHub.getMode(this) ==

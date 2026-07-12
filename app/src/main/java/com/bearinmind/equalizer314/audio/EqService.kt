@@ -580,6 +580,7 @@ class EqService : Service() {
                 // memory-reclaimed; tapping Turn On loops through
                 // ACTION_AUTO_START to bring DP back up.
                 updateNotification()
+                scheduleNotificationSettle()
                 return START_STICKY
             }
             ACTION_START_FROM_TILE -> {
@@ -797,6 +798,7 @@ class EqService : Service() {
             // immediately rather than waiting for the next volume-change
             // tick to repost it.
             updateNotification()
+            scheduleNotificationSettle()
             // Attach reverb on the path matching the current routing mode
             // (session 0 in global mode). No-op unless the reverb toggle is on.
             sessionEffects?.applyReverbParamsToAll()
@@ -971,6 +973,19 @@ class EqService : Service() {
             eq.isEnabled = true
             eq
         }.getOrNull()
+    }
+
+    /** Android rate-limits back-to-back NotificationManager.notify() calls
+     *  and silently DROPS the excess — a state flip that lands in the same
+     *  instant as a volume tick can lose its update and the notification
+     *  looks stale until the next unrelated refresh. This settle pass
+     *  re-posts once, a beat after any state change, so a swallowed update
+     *  self-heals. */
+    private val notifSettleHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val notifSettleRunnable = Runnable { updateNotification() }
+    private fun scheduleNotificationSettle() {
+        notifSettleHandler.removeCallbacks(notifSettleRunnable)
+        notifSettleHandler.postDelayed(notifSettleRunnable, 1200L)
     }
 
     /** Re-post the notification with current state. Public so callers
