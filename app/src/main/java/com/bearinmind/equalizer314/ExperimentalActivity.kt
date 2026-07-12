@@ -34,6 +34,7 @@ class ExperimentalActivity : AppCompatActivity() {
         setupHideNotification()
         setupFrameSlider()
         setupInterleave()
+        setupTvMode()
 
         // Hide the legacy "Experimental DP Engine" switch row — the
         // experimental path is now the only path. Keeping the view
@@ -153,6 +154,384 @@ class ExperimentalActivity : AppCompatActivity() {
                 )
             } catch (_: Exception) {}
         }
+    }
+
+    // ---- TV Mode (issues #35 / #55) -------------------------------------
+    // Off / TV (server: this device is remotely controlled) / Remote
+    // (client: this device's UI drives a TV found via LAN discovery).
+
+    private var tvDiscovery: com.bearinmind.equalizer314.remote.TvRemoteDiscovery? = null
+    private val foundTvs = LinkedHashMap<String, Pair<String, Int>>() // name -> (host, port)
+    private var tvPickerDialog: android.app.AlertDialog? = null
+    private var tvPickerList: android.widget.LinearLayout? = null
+    private var tvPickerPlaceholder: android.widget.TextView? = null
+
+    private fun setupTvMode() {
+        val hub = com.bearinmind.equalizer314.remote.TvRemoteHub
+        val group = findViewById<com.google.android.material.button.MaterialButtonToggleGroup>(R.id.expTvModeGroup)
+        val status = findViewById<android.widget.TextView>(R.id.expTvModeStatus)
+
+        hub.statusListener = { msg -> status.text = msg }
+        status.text = hub.lastStatus()
+
+        val mode = hub.getMode(this)
+        group.check(
+            when (mode) {
+                com.bearinmind.equalizer314.remote.TvRemoteHub.MODE_SERVER -> R.id.expTvModeServer
+                com.bearinmind.equalizer314.remote.TvRemoteHub.MODE_CLIENT -> R.id.expTvModeClient
+                else -> R.id.expTvModeOff
+            }
+        )
+        // Re-entering the screen in Remote mode without a live link: rescan
+        // right away so the device picker pops on its own.
+        if (mode == com.bearinmind.equalizer314.remote.TvRemoteHub.MODE_CLIENT &&
+            hub.client?.connected != true
+        ) {
+            showTvPicker()
+            startTvDiscovery()
+        }
+
+        group.addOnButtonCheckedListener { _, checkedId, isChecked ->
+            if (!isChecked) return@addOnButtonCheckedListener
+            when (checkedId) {
+                R.id.expTvModeOff -> {
+                    stopTvDiscovery()
+                    hub.setMode(this, com.bearinmind.equalizer314.remote.TvRemoteHub.MODE_OFF)
+                }
+                R.id.expTvModeServer -> {
+                    stopTvDiscovery()
+                    stopDpForModeChange()
+                    hub.setMode(this, com.bearinmind.equalizer314.remote.TvRemoteHub.MODE_SERVER)
+                    showTvPinDialog()
+                }
+                R.id.expTvModeClient -> {
+                    stopDpForModeChange()
+                    hub.setMode(this, com.bearinmind.equalizer314.remote.TvRemoteHub.MODE_CLIENT)
+                    showTvPicker()
+                    startTvDiscovery()
+                }
+            }
+        }
+    }
+
+    private val tvScanTimeoutHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val tvScanTimeout = Runnable {
+        if (foundTvs.isEmpty() && tvDiscovery != null) {
+            tvScanTimeoutHandler.removeCallbacks(tvSearchAnim)
+            tvPickerPlaceholder?.text = "No devices found"
+        }
+    }
+
+    // "Searching" → "Searching." → ".." → "..." while the scan runs.
+    private var tvSearchDots = 0
+    private val tvSearchAnim: Runnable = object : Runnable {
+        override fun run() {
+            val ph = tvPickerPlaceholder ?: return
+            ph.text = "Searching" + ".".repeat(tvSearchDots)
+            tvSearchDots = (tvSearchDots + 1) % 4
+            tvScanTimeoutHandler.postDelayed(this, 400L)
+        }
+    }
+
+    private fun startTvSearchAnim() {
+        tvSearchDots = 0
+        tvScanTimeoutHandler.removeCallbacks(tvSearchAnim)
+        tvScanTimeoutHandler.post(tvSearchAnim)
+    }
+
+    private fun startTvDiscovery() {
+        foundTvs.clear()
+        tvDiscovery?.stop()
+        findViewById<android.widget.TextView>(R.id.expTvModeStatus)?.text = ""
+        tvDiscovery = com.bearinmind.equalizer314.remote.TvRemoteDiscovery(
+            this,
+            onFound = { name, host, port ->
+                tvScanTimeoutHandler.removeCallbacks(tvScanTimeout)
+                tvScanTimeoutHandler.removeCallbacks(tvSearchAnim)
+                val isNew = foundTvs.put(name, host to port) == null
+                if (isNew) addTvRow(name)
+            },
+            onStatus = { msg ->
+                findViewById<android.widget.TextView>(R.id.expTvModeStatus)?.text = msg
+            },
+        )
+        tvDiscovery?.start()
+        tvScanTimeoutHandler.removeCallbacks(tvScanTimeout)
+        tvScanTimeoutHandler.postDelayed(tvScanTimeout, 8000L)
+    }
+
+    private fun stopTvDiscovery() {
+        tvScanTimeoutHandler.removeCallbacks(tvScanTimeout)
+        tvScanTimeoutHandler.removeCallbacks(tvSearchAnim)
+        tvDiscovery?.stop()
+        tvDiscovery = null
+    }
+
+    /** Entering TV or Remote mode powers the DP off — the user turns it
+     *  back on deliberately, so both ends start from a known-off state and
+     *  the first power-on propagates cleanly over the link. */
+    private fun stopDpForModeChange() {
+        try {
+            startService(
+                android.content.Intent(this, com.bearinmind.equalizer314.audio.EqService::class.java)
+                    .setAction(com.bearinmind.equalizer314.audio.EqService.ACTION_STOP)
+            )
+        } catch (_: Exception) {}
+    }
+
+    // House dialog style (matches MainActivity's save-preset dialog):
+    // custom vertical layout, 20sp title, rounded outlined widgets, thin
+    // divider, side-by-side outlined buttons with the red Cancel.
+    private fun styledDialogRoot(): android.widget.LinearLayout {
+        val density = resources.displayMetrics.density
+        return android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding((24 * density).toInt(), (20 * density).toInt(), (24 * density).toInt(), (16 * density).toInt())
+        }
+    }
+
+    private fun styledDialogTitle(text: String): android.widget.TextView {
+        val density = resources.displayMetrics.density
+        return android.widget.TextView(this).apply {
+            this.text = text
+            setTextColor(0xFFE2E2E2.toInt())
+            textSize = 20f
+            setPadding(0, 0, 0, (12 * density).toInt())
+        }
+    }
+
+    private fun styledDialogDivider(): android.view.View {
+        val density = resources.displayMetrics.density
+        return android.view.View(this).apply {
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT, (1 * density).toInt()).apply {
+                bottomMargin = (12 * density).toInt()
+            }
+            setBackgroundColor(0xFF444444.toInt())
+        }
+    }
+
+    private fun styledDialogButton(label: String, isCancel: Boolean): com.google.android.material.button.MaterialButton {
+        val density = resources.displayMetrics.density
+        return com.google.android.material.button.MaterialButton(
+            this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle
+        ).apply {
+            text = label
+            cornerRadius = (12 * density).toInt()
+            setTextColor(if (isCancel) 0xFFEF9A9A.toInt() else 0xFFDDDDDD.toInt())
+            strokeColor = android.content.res.ColorStateList.valueOf(0xFF444444.toInt())
+            strokeWidth = (1 * density).toInt()
+            setBackgroundColor(0x00000000)
+            insetTop = 0; insetBottom = 0
+        }
+    }
+
+    /** Server-mode PIN popup — the pairing code, house dialog style. */
+    private fun showTvPinDialog() {
+        val pin = com.bearinmind.equalizer314.remote.TvRemoteHub.server?.pin
+        if (pin.isNullOrEmpty() || isFinishing) return
+        val density = resources.displayMetrics.density
+        val root = styledDialogRoot()
+        root.addView(styledDialogTitle("TV Mode"))
+        root.addView(android.widget.TextView(this).apply {
+            text = pin
+            setTextColor(0xFFFFFFFF.toInt())
+            textSize = 36f
+            letterSpacing = 0.25f
+            gravity = android.view.Gravity.CENTER
+            setPadding(0, (4 * density).toInt(), 0, (10 * density).toInt())
+        })
+        root.addView(android.widget.TextView(this).apply {
+            text = "Enter this PIN on the remote device"
+            setTextColor(0xFF888888.toInt())
+            textSize = 13f
+            gravity = android.view.Gravity.CENTER
+            setPadding(0, 0, 0, (16 * density).toInt())
+        })
+        root.addView(styledDialogDivider())
+        val okBtn = styledDialogButton("OK", isCancel = false).apply {
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT)
+        }
+        root.addView(okBtn)
+        val dialog = android.app.AlertDialog.Builder(this, R.style.Theme_Equalizer314_Dialog)
+            .setView(root)
+            .create()
+        okBtn.setOnClickListener { dialog.dismiss() }
+        dialog.show()
+    }
+
+    /** Device picker — opens immediately when Remote is selected (even with
+     *  nothing found yet) and fills in rows live as devices appear. */
+    private fun showTvPicker() {
+        if (isFinishing) return
+        tvPickerDialog?.dismiss()
+        val density = resources.displayMetrics.density
+
+        val root = styledDialogRoot()
+        root.addView(styledDialogTitle("Devices on your network"))
+
+        val list = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+        }
+        val placeholder = android.widget.TextView(this).apply {
+            text = "Searching"
+            setTextColor(0xFF888888.toInt())
+            textSize = 13f
+            gravity = android.view.Gravity.CENTER
+            setPadding(0, (8 * density).toInt(), 0, (16 * density).toInt())
+        }
+        list.addView(placeholder)
+        root.addView(list)
+        root.addView(styledDialogDivider())
+
+        val btnRow = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT)
+        }
+        val cancelBtn = styledDialogButton("Cancel", isCancel = true).apply {
+            layoutParams = android.widget.LinearLayout.LayoutParams(0,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginEnd = (3 * density).toInt()
+            }
+        }
+        val refreshBtn = styledDialogButton("Refresh", isCancel = false).apply {
+            layoutParams = android.widget.LinearLayout.LayoutParams(0,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginStart = (3 * density).toInt()
+            }
+        }
+        btnRow.addView(cancelBtn)
+        btnRow.addView(refreshBtn)
+        root.addView(btnRow)
+
+        val dialog = android.app.AlertDialog.Builder(this, R.style.Theme_Equalizer314_Dialog)
+            .setView(root)
+            .create()
+        dialog.setOnDismissListener {
+            if (tvPickerDialog === dialog) {
+                tvPickerDialog = null
+                tvPickerList = null
+                tvPickerPlaceholder = null
+            }
+        }
+        cancelBtn.setOnClickListener {
+            stopTvDiscovery()
+            dialog.dismiss()
+        }
+        refreshBtn.setOnClickListener {
+            list.removeAllViews()
+            placeholder.text = "Searching"
+            list.addView(placeholder)
+            startTvDiscovery()
+            startTvSearchAnim()
+        }
+
+        tvPickerDialog = dialog
+        tvPickerList = list
+        tvPickerPlaceholder = placeholder
+        dialog.show()
+        if (foundTvs.isEmpty()) startTvSearchAnim()
+        for (name in foundTvs.keys) addTvRow(name)
+    }
+
+    /** Add a discovered device row to the open picker (no-op if closed). */
+    private fun addTvRow(name: String) {
+        val list = tvPickerList ?: return
+        val density = resources.displayMetrics.density
+        tvPickerPlaceholder?.let { if (it.parent === list) list.removeView(it) }
+        val row = styledDialogButton(name, isCancel = false).apply {
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = (8 * density).toInt()
+            }
+            setOnClickListener {
+                tvPickerDialog?.dismiss()
+                onTvPicked(name)
+            }
+        }
+        list.addView(row)
+    }
+
+    private fun onTvPicked(name: String) {
+        val hub = com.bearinmind.equalizer314.remote.TvRemoteHub
+        val (host, port) = foundTvs[name] ?: return
+        stopTvDiscovery()
+        if (!hub.needsPairing(this, name)) {
+            hub.connectClient(this, name, host, port, null)
+            return
+        }
+        val density = resources.displayMetrics.density
+        val root = styledDialogRoot()
+        root.addView(styledDialogTitle("Pair with $name"))
+
+        val inputBox = android.widget.FrameLayout(this).apply {
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = (16 * density).toInt()
+            }
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(0x00000000)
+                setStroke((1 * density).toInt(), 0xFF555555.toInt())
+                cornerRadius = 12 * density
+            }
+        }
+        val input = android.widget.EditText(this).apply {
+            hint = "PIN shown on the device"
+            setTextColor(0xFFFFFFFF.toInt())
+            setHintTextColor(0xFF888888.toInt())
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            background = null
+            val pad = (14 * density).toInt()
+            setPadding(pad, pad, pad, pad)
+            isSingleLine = true
+        }
+        inputBox.addView(input)
+        root.addView(inputBox)
+        root.addView(styledDialogDivider())
+
+        val btnRow = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT)
+        }
+        val cancelBtn = styledDialogButton("Cancel", isCancel = true).apply {
+            layoutParams = android.widget.LinearLayout.LayoutParams(0,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginEnd = (3 * density).toInt()
+            }
+        }
+        val pairBtn = styledDialogButton("Pair", isCancel = false).apply {
+            layoutParams = android.widget.LinearLayout.LayoutParams(0,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginStart = (3 * density).toInt()
+            }
+        }
+        btnRow.addView(cancelBtn)
+        btnRow.addView(pairBtn)
+        root.addView(btnRow)
+
+        val dialog = android.app.AlertDialog.Builder(this, R.style.Theme_Equalizer314_Dialog)
+            .setView(root)
+            .create()
+        cancelBtn.setOnClickListener { dialog.dismiss() }
+        pairBtn.setOnClickListener {
+            dialog.dismiss()
+            hub.connectClient(this, name, host, port, input.text.toString().trim())
+        }
+        dialog.show()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        com.bearinmind.equalizer314.remote.TvRemoteHub.statusListener = null
+        stopTvDiscovery()
     }
 
     override fun finish() {

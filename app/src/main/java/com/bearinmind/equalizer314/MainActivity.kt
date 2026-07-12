@@ -453,6 +453,10 @@ class  MainActivity : AppCompatActivity() {
                 } catch (_: Throwable) {}
             }
             updateDevicePresetStatus()
+            // TV Mode: DP actually started — sync power to the peer. This
+            // broadcast fires on EVERY start path (FAB, tile, remote), unlike
+            // onProcessingChanged which only fires on service (re)binds.
+            com.bearinmind.equalizer314.remote.TvRemoteHub.onLocalEqChanged()
         }
     }
 
@@ -472,6 +476,8 @@ class  MainActivity : AppCompatActivity() {
             eqPrefs.savePowerState(false)
             com.bearinmind.equalizer314.ui.BottomNavHelper.updatePowerFab(this@MainActivity, false)
             updateDevicePresetStatus()
+            // TV Mode: DP stopped — sync power to the peer.
+            com.bearinmind.equalizer314.remote.TvRemoteHub.onLocalEqChanged()
         }
     }
 
@@ -618,6 +624,39 @@ class  MainActivity : AppCompatActivity() {
         initEQ()
         syncPreampUI()
         setupListeners()
+
+        // TV Mode (issues #35/#55): register this UI as the remote link's
+        // state provider/applier, hook EQ pushes for live sync, re-arm a
+        // persisted Server mode after process death, and flush any state
+        // that arrived before the UI existed.
+        com.bearinmind.equalizer314.remote.TvRemoteHub.stateProvider = {
+            // Preset JSON + a nav block so the peer's screen can shadow this
+            // one (screen-state follow). Nav lives ONLY in the remote link —
+            // saved preset files never see it (they call
+            // buildCurrentPresetJson directly).
+            val state = org.json.JSONObject(buildCurrentPresetJson())
+            state.put("power", stateManager.isProcessing)
+            state.put("nav", org.json.JSONObject().apply {
+                put("screen", com.bearinmind.equalizer314.remote.TvRemoteHub.topScreen)
+                put("uiMode", stateManager.currentEqUiMode.name)
+                put("selectedBand", stateManager.selectedBandIndex ?: -1)
+                put("channelView", when {
+                    stateManager.bothViewActive -> "BOTH_VIEW"
+                    else -> stateManager.activeChannel.name
+                })
+            })
+            state.toString()
+        }
+        com.bearinmind.equalizer314.remote.TvRemoteHub.stateApplier = { obj -> applyRemotePresetJson(obj) }
+        stateManager.onEqPushed = { com.bearinmind.equalizer314.remote.TvRemoteHub.onLocalEqChanged() }
+        com.bearinmind.equalizer314.remote.TvRemoteHub.serverClientsListener = { n ->
+            com.bearinmind.equalizer314.remote.RemoteScrim.setActive(n > 0)
+        }
+        com.bearinmind.equalizer314.remote.TvRemoteHub.ensureModeStarted(this)
+        com.bearinmind.equalizer314.remote.TvRemoteHub.onUiReady()
+        com.bearinmind.equalizer314.remote.RemoteScrim.setActive(
+            (com.bearinmind.equalizer314.remote.TvRemoteHub.server?.connectedRemotes() ?: 0) > 0
+        )
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(
@@ -855,6 +894,8 @@ class  MainActivity : AppCompatActivity() {
         // Wire state manager callbacks
         stateManager.onProcessingChanged = { active ->
             animatePowerFab(active)
+            // TV Mode: power on/off is part of the synced state.
+            com.bearinmind.equalizer314.remote.TvRemoteHub.onLocalEqChanged()
         }
         stateManager.onServiceConnected = {
             doStartEq()
@@ -2465,6 +2506,173 @@ class  MainActivity : AppCompatActivity() {
      *  to a preset JSON string. Shared by the "+" save-new flow and the
      *  per-row overwrite, so a saved and an overwritten preset are byte-for
      *  byte the same format. */
+    /** Apply a preset-JSON state received over TV Mode (issues #35/#55).
+     *  Mirrors the preset-load path minus the picker UI: bands (incl. CSE
+     *  L/R fork), preamp, graph/toggle refresh, live DP push. Runs under
+     *  TvRemoteHub's applyingRemote guard so the pushEqUpdate inside can't
+     *  echo the state straight back to the peer. */
+    private fun applyRemotePresetJson(obj: org.json.JSONObject) {
+        fun parseBands(arr: org.json.JSONArray): List<com.bearinmind.equalizer314.state.EqStateManager.BandSpec> {
+            val out = mutableListOf<com.bearinmind.equalizer314.state.EqStateManager.BandSpec>()
+            for (i in 0 until arr.length()) {
+                val bj = arr.getJSONObject(i)
+                val ft = try { com.bearinmind.equalizer314.dsp.BiquadFilter.FilterType.valueOf(bj.getString("filterType")) }
+                         catch (_: Exception) { com.bearinmind.equalizer314.dsp.BiquadFilter.FilterType.BELL }
+                out += com.bearinmind.equalizer314.state.EqStateManager.BandSpec(
+                    frequency = bj.getDouble("frequency").toFloat(),
+                    gain = bj.getDouble("gain").toFloat(),
+                    q = bj.getDouble("q"),
+                    filterType = ft,
+                    enabled = if (bj.has("enabled")) bj.getBoolean("enabled") else true,
+                )
+            }
+            return out
+        }
+        val cseOn = obj.optBoolean("channelSideEqEnabled", false)
+        val bothBands = if (obj.has("bands")) parseBands(obj.getJSONArray("bands")) else emptyList()
+        val leftBands = if (obj.has("leftBands")) parseBands(obj.getJSONArray("leftBands")) else bothBands
+        val rightBands = if (obj.has("rightBands")) parseBands(obj.getJSONArray("rightBands")) else bothBands
+
+        // Structure signature: band count + filter types + enabled flags.
+        // Value-only syncs (a remote band drag = gain/freq/Q changes) must
+        // NOT rebuild the toggle rows — rebuilding them ~7×/s mid-animation
+        // is what squished the extra band row. Only rebuild when the band
+        // STRUCTURE actually changed.
+        fun sigOfSpecs(bands: List<com.bearinmind.equalizer314.state.EqStateManager.BandSpec>) =
+            bands.joinToString(";") { "${it.filterType.name}${if (it.enabled) '1' else '0'}" }
+        fun sigOfEq(eq: com.bearinmind.equalizer314.dsp.ParametricEqualizer) =
+            (0 until eq.getBandCount()).joinToString(";") { i ->
+                val b = eq.getBand(i) ?: return@joinToString "?"
+                "${b.filterType.name}${if (b.enabled) '1' else '0'}"
+            }
+        val currentCse = eqPrefs.getChannelSideEqEnabled()
+        val (curL, curR) = stateManager.getChannelEqs()
+        val structureChanged = cseOn != currentCse ||
+            if (cseOn) sigOfSpecs(leftBands) != sigOfEq(curL) || sigOfSpecs(rightBands) != sigOfEq(curR)
+            else sigOfSpecs(bothBands) != sigOfEq(stateManager.parametricEq)
+
+        stateManager.applyPresetEqs(cseOn, bothBands, leftBands, rightBands)
+        eqGraphView.setParametricEqualizer(stateManager.parametricEq)
+        stateManager.eqPrefs.saveState(stateManager.parametricEq)
+        stateManager.persistLeftRightIfCse()
+        if (structureChanged) {
+            stateManager.initBandSlots()
+            bandToggleManager.setupToggles()
+            if (stateManager.currentEqUiMode == EqUiMode.TABLE) tableController.buildTable()
+        } else {
+            eqGraphView.updateBandLevels()
+        }
+        stateManager.preampGainDb =
+            if (obj.has("preamp")) obj.getDouble("preamp").toFloat() else 0f
+        stateManager.eqPrefs.savePreampGain(stateManager.preampGainDb)
+        preampSlider.value = stateManager.preampGainDb.coerceIn(-12f, 12f)
+        preampText.setText(String.format("%.1f", stateManager.preampGainDb))
+        stateManager.pushEqUpdate()
+        stateManager.getGhostEqs().let { eqGraphView.setGhostEqualizer(it.first, it.second) }
+        eqGraphView.setOverlayEqualizer(stateManager.getGraphOverlayEq())
+        refreshChannelPopoutDim()
+        // Power follows the peer: the remote's power button drives this
+        // device's DP (and vice versa on the remote when the TV toggles).
+        if (obj.has("power")) {
+            val wantPower = obj.getBoolean("power")
+            if (wantPower != stateManager.isProcessing) {
+                if (wantPower) startProcessing() else stopProcessing()
+            }
+        }
+        obj.optJSONObject("nav")?.let { applyRemoteNav(it) }
+        // While a remote is driving this device, keep the app-wide touch
+        // lock up (re-arms it after a local long-press takeover too).
+        if (com.bearinmind.equalizer314.remote.TvRemoteHub.getMode(this) ==
+            com.bearinmind.equalizer314.remote.TvRemoteHub.MODE_SERVER) {
+            com.bearinmind.equalizer314.remote.RemoteScrim.setActive(true)
+        }
+    }
+
+    /** Screen-state follow (TV Mode): shadow the remote's navigation —
+     *  surface the EQ screen, match its UI mode, channel view, and selected
+     *  band. One-directional by design: the remote drives, this device
+     *  follows. Transient UI (dialogs, scroll, mid-drag) is not mirrored. */
+    private var lastRemoteNav: String? = null
+
+    /** Screens the TV will follow the remote into (simple name → class). */
+    private val remoteFollowScreens: Map<String, Class<out android.app.Activity>> = mapOf(
+        "MainActivity" to MainActivity::class.java,
+        "MbcActivity" to MbcActivity::class.java,
+        "LimiterActivity" to LimiterActivity::class.java,
+        "EnvironmentalReverbActivity" to EnvironmentalReverbActivity::class.java,
+        "ChannelSideEqActivity" to ChannelSideEqActivity::class.java,
+        "ExperimentalActivity" to ExperimentalActivity::class.java,
+        "AudioOutputActivity" to AudioOutputActivity::class.java,
+        "SpectrumControlActivity" to SpectrumControlActivity::class.java,
+        "AutoEqActivity" to AutoEqActivity::class.java,
+        "TargetCurveActivity" to TargetCurveActivity::class.java,
+        "PresetsConversionsActivity" to PresetsConversionsActivity::class.java,
+        "CustomPresetsActivity" to CustomPresetsActivity::class.java,
+        "AudioEffectsPipelineActivity" to AudioEffectsPipelineActivity::class.java,
+        "ChannelInputActivity" to ChannelInputActivity::class.java,
+        "ConvertToApoActivity" to ConvertToApoActivity::class.java,
+        "MeasurementSelectActivity" to MeasurementSelectActivity::class.java,
+        "TargetSelectActivity" to TargetSelectActivity::class.java,
+    )
+
+    private fun applyRemoteNav(nav: org.json.JSONObject) {
+        val navStr = nav.toString()
+        val changed = navStr != lastRemoteNav
+        lastRemoteNav = navStr
+        // Follow the remote's screen: MBC, Limiter, settings pages — any
+        // whitelisted activity. Only acts when the nav actually changed and
+        // we're not already on that screen.
+        val targetScreen = nav.optString("screen", "")
+        if (changed && targetScreen.isNotEmpty() &&
+            targetScreen != com.bearinmind.equalizer314.remote.TvRemoteHub.topScreen) {
+            remoteFollowScreens[targetScreen]?.let { cls ->
+                try {
+                    startActivity(
+                        android.content.Intent(this, cls)
+                            .addFlags(android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
+                                android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                    )
+                } catch (_: Exception) {}
+            }
+        }
+        // EQ UI mode (Parametric / Graphic / Table / Simple)
+        try {
+            val mode = EqUiMode.valueOf(nav.optString("uiMode", stateManager.currentEqUiMode.name))
+            if (mode != stateManager.currentEqUiMode) switchEqUiMode(mode)
+        } catch (_: Exception) {}
+        // Channel view — only meaningful while Channel Side EQ is on.
+        if (eqPrefs.getChannelSideEqEnabled()) {
+            when (nav.optString("channelView", "")) {
+                "BOTH_VIEW" -> if (!stateManager.bothViewActive) {
+                    stateManager.enterBothView()
+                    rebindActiveEq()
+                    paintChannelButtonStyles()
+                }
+                "LEFT" -> if (stateManager.bothViewActive ||
+                    stateManager.activeChannel != com.bearinmind.equalizer314.state.EqStateManager.ActiveChannel.LEFT) {
+                    if (stateManager.bothViewActive) stateManager.exitBothView()
+                    stateManager.setActiveChannel(com.bearinmind.equalizer314.state.EqStateManager.ActiveChannel.LEFT)
+                    rebindActiveEq()
+                    paintChannelButtonStyles()
+                }
+                "RIGHT" -> if (stateManager.bothViewActive ||
+                    stateManager.activeChannel != com.bearinmind.equalizer314.state.EqStateManager.ActiveChannel.RIGHT) {
+                    if (stateManager.bothViewActive) stateManager.exitBothView()
+                    stateManager.setActiveChannel(com.bearinmind.equalizer314.state.EqStateManager.ActiveChannel.RIGHT)
+                    rebindActiveEq()
+                    paintChannelButtonStyles()
+                }
+            }
+        }
+        // Selected band highlight
+        val sel = nav.optInt("selectedBand", -1)
+        if (sel >= 0 && sel < stateManager.parametricEq.getBandCount() &&
+            sel != stateManager.selectedBandIndex) {
+            eqGraphView.setActiveBand(sel)
+            bandToggleManager.updateSelection(sel)
+        }
+    }
+
     private fun buildCurrentPresetJson(): String {
         stateManager.eqPrefs.saveState(stateManager.parametricEq)
         stateManager.persistLeftRightIfCse()
@@ -2732,6 +2940,8 @@ class  MainActivity : AppCompatActivity() {
     }
 
     private fun switchEqUiMode(mode: EqUiMode) {
+        // TV Mode nav sync — hub debounces 150ms, so state is read post-switch.
+        com.bearinmind.equalizer314.remote.TvRemoteHub.onLocalEqChanged()
         // Clean up table mode bands when leaving
         if (stateManager.currentEqUiMode == EqUiMode.TABLE && mode != EqUiMode.TABLE) {
             tableController.cleanup()
@@ -3686,6 +3896,8 @@ class  MainActivity : AppCompatActivity() {
     // onBandChannelPicked) retired — see LegacyFeatures.kt.
 
     private fun updateFilterTypeButtons(bandIndex: Int?) {
+        // TV Mode nav sync — fires on band selection changes.
+        com.bearinmind.equalizer314.remote.TvRemoteHub.onLocalEqChanged()
         if (bandIndex == null) return
         val band = stateManager.parametricEq.getBand(bandIndex) ?: return
         val currentType = band.filterType
@@ -4104,6 +4316,8 @@ class  MainActivity : AppCompatActivity() {
     }
 
     private fun paintChannelButtonStyles() {
+        // TV Mode nav sync — fires on L / R / Both view changes.
+        com.bearinmind.equalizer314.remote.TvRemoteHub.onLocalEqChanged()
         val enabled = eqPrefs.getChannelSideEqEnabled()
         val lBtn = findViewById<com.google.android.material.button.MaterialButton>(R.id.channelLButton) ?: return
         val rBtn = findViewById<com.google.android.material.button.MaterialButton>(R.id.channelRButton) ?: return

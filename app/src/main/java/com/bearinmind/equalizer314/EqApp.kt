@@ -16,5 +16,8 @@ class EqApp : Application() {
         AppCompatDelegate.setDefaultNightMode(
             if (light) AppCompatDelegate.MODE_NIGHT_NO else AppCompatDelegate.MODE_NIGHT_YES
         )
+        // TV Mode: app-wide screen tracking (peer nav-follow) + the
+        // remote-controlled touch lock on every activity.
+        com.bearinmind.equalizer314.remote.RemoteScrim.install(this)
     }
 }

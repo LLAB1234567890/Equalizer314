@@ -298,6 +298,11 @@ class EqStateManager(
         return changed
     }
 
+    /** TV Mode hook (issues #35/#55): fired on every pushEqUpdate BEFORE the
+     *  isProcessing early-return — a Remote-mode phone must sync changes to
+     *  the TV even when its own DP is off. */
+    var onEqPushed: (() -> Unit)? = null
+
     fun pushEqUpdate() {
         // Mirror any tethered ("Both"-tagged) band edits between L and R —
         // runs even when not processing so the in-memory state is correct
@@ -307,6 +312,7 @@ class EqStateManager(
         // CSE is on (final channel = channel curve + shared curve).
         ParametricToDpConverter.overlayEq =
             if (eqPrefs.getChannelSideEqEnabled() && sharedEq.getBandCount() > 0) sharedEq else null
+        onEqPushed?.invoke()
         if (!isProcessing) return
         val dm = eqService?.dynamicsManager ?: return
         dm.autoGainEnabled = autoGainEnabled
@@ -859,6 +865,11 @@ class EqStateManager(
             val (lEq, rEq) = getChannelEqs()
             if (lEq !== rEq) service.updateEqPerChannel(lEq, rEq)
         }
+        // TV Mode (issues #35/#55): isProcessing just flipped ON — this is
+        // the ONLY reliable signal on the normal power-button path (the
+        // EQ_STARTED broadcast fires only on the QS-tile path), so sync the
+        // power state to the peer from here.
+        onEqPushed?.invoke()
     }
 
     fun stopProcessing(animatePower: (Boolean) -> Unit) {
@@ -870,6 +881,8 @@ class EqStateManager(
         }
         eqService = null
         isProcessing = false
+        // TV Mode: power OFF — sync to peer (see doStartEq's matching hook).
+        onEqPushed?.invoke()
     }
 
     fun getFilterIconRes(filterType: BiquadFilter.FilterType): Int {
