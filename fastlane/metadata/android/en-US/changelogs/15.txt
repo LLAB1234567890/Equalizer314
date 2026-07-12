@@ -1,0 +1,7 @@
+- Remote EQ Mode (experimental, issues #35 / #55): control the app from another device on your network. Set the audio device to "TV" (a PIN appears), your phone to "Remote", pair once, and the phone's full EQ UI drives the other device live — bands, preamp, power, presets, even screen navigation. The controlled device shows a "Remote Controlled" lock overlay and its notification reads Remote / Remote Controlled while a link role is active.
+- Pre/Post EQ Interleave (experimental, issue #26 follow-up): renders the EQ across both DynamicsProcessing EQ stages with offset bands — 256 effective stairs, roughly halving the remaining rendering ripple at no added latency (REW-verified).
+- Changing the DP Latency Window or Interleave now power-cycles the DP for you (toast + power button echo) — no more manual off/on after a settings change.
+- Channel Side EQ: new shared "Both" graph layer — a separate curve applied on top of both channels (Left out = L + Both, Right out = R + Both), edited via the Both button; L / R views draw the audible composite, and the Both view shows live dotted lines of both resulting channels. L and R also get separate preamps.
+- Both "." and "," now work as the decimal separator in every numeric input (Hz / dB / Q, preamp, MBC, limiter, reverb).
+- Notification updates much faster on power toggles and preset changes.
+- Fixes: extra band row no longer squishes during rapid updates; fixed a state bug that could render the whole EQ at half depth after toggling interleave.

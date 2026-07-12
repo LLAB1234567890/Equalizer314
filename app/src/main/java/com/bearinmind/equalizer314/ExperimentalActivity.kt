@@ -336,7 +336,7 @@ class ExperimentalActivity : AppCompatActivity() {
         if (pin.isNullOrEmpty() || isFinishing) return
         val density = resources.displayMetrics.density
         val root = styledDialogRoot()
-        root.addView(styledDialogTitle("TV Mode"))
+        root.addView(styledDialogTitle("Remote EQ Mode"))
         root.addView(android.widget.TextView(this).apply {
             text = pin
             setTextColor(0xFFFFFFFF.toInt())

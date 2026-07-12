@@ -295,14 +295,14 @@
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="TV Mode"
+                    android:text="Remote EQ Mode"
                     android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
                     android:textColor="?attr/colorOnSurface" />
 
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Control this app from another device on your Wi-Fi. On the TV pick 'TV' (a PIN appears); on your phone pick 'Remote', scan, and enter the PIN. The phone's EQ screen then controls the TV's audio."
+                    android:text="Control this app from another device on network."
                     android:textAppearance="@style/TextAppearance.Material3.BodySmall"
                     android:textColor="?attr/colorOnSurfaceVariant"
                     android:paddingTop="4dp" />
