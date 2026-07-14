@@ -384,6 +384,11 @@ class  MainActivity : AppCompatActivity() {
     private val graphBtnLitContent: Int get() = if (isLightUi) 0xFF252525.toInt() else 0xFFDDDDDD.toInt()
     private val graphBtnDimStroke: Int get() = if (isLightUi) 0xFFBEBEBE.toInt() else 0xFF444444.toInt()
     private val graphBtnDimContent: Int get() = if (isLightUi) 0xFF555555.toInt() else 0xFF888888.toInt()
+    // Opaque dim-state fill matching EqGraphView's canvas background — the
+    // overlay buttons (ON / edit / spectrum / visibility / presets / channel
+    // side) must OCCLUDE the graph's band/preset badges, not show them
+    // through a transparent center.
+    private val graphBtnDimBg: Int get() = if (isLightUi) 0xFFE4E4E4.toInt() else 0xFF1E1E1E.toInt()
     private lateinit var navSettingsButton: ImageButton
     private lateinit var navPresetsButton: ImageButton
     private lateinit var powerFab: android.widget.ImageButton
@@ -1204,7 +1209,9 @@ class  MainActivity : AppCompatActivity() {
             if (channelPopoutOpen) {
                 val offsetY = -(altRouteBtn.height.toFloat() + gapPx)
                 // L and R are dimmed when Channel Side EQ is off, bright when on.
-                val lrAlpha = if (eqPrefs.getChannelSideEqEnabled()) 1.0f else 0.4f
+                // Full alpha always — inactive state is conveyed by the dim
+                // color palette; translucency let graph badges bleed through.
+                val lrAlpha = 1.0f
                 // Paint pressed/outlined styles first so the buttons fade in
                 // already reflecting the active channel.
                 paintChannelButtonStyles()
@@ -1237,7 +1244,7 @@ class  MainActivity : AppCompatActivity() {
                 channelBothBtn.animate().alpha(0f).scaleX(0.3f).scaleY(0.3f).translationY(offsetY)
                     .setDuration(200).setStartDelay(120).setInterpolator(android.view.animation.AccelerateInterpolator())
                     .withEndAction { channelBothBtn.visibility = View.GONE; channelBothBtn.translationY = 0f }.start()
-                altRouteBtn.setBackgroundColor(0x00000000)
+                altRouteBtn.setBackgroundColor(graphBtnDimBg)
                 altRouteBtn.strokeColor = android.content.res.ColorStateList.valueOf(0xFF444444.toInt())
                 altRouteBtn.iconTint = android.content.res.ColorStateList.valueOf(0xFF888888.toInt())
             }
@@ -1277,11 +1284,20 @@ class  MainActivity : AppCompatActivity() {
             paintChannelButtonStyles()
         }
 
-        // Settings gear: navigate to the Settings page.
+        // Power button in the channel popout: toggles Channel Side EQ on/off
+        // directly. (Replaces the old settings-gear navigation — the Channel
+        // Side Options screen entry was retired, see LegacyFeatures.kt.)
         settingsGearBtn.setOnClickListener {
-            pageEq.visibility = View.GONE
-            pageSettings.visibility = View.VISIBLE
-            updateBottomBarHighlight(isEqPage = false)
+            val on = !eqPrefs.getChannelSideEqEnabled()
+            stateManager.setChannelSideEqEnabled(on)
+            rebindActiveEq()
+            paintChannelButtonStyles()
+            refreshChannelPopoutDim()
+            Toast.makeText(
+                this,
+                if (on) "Channel Side EQ on" else "Channel Side EQ off",
+                Toast.LENGTH_SHORT
+            ).show()
         }
         // Save preset button — toggle between controls and preset picker
         val eqControlsContainerLocal = eqControlsContainer as android.view.View
@@ -2008,7 +2024,7 @@ class  MainActivity : AppCompatActivity() {
                         presetPickerScroll.visibility = android.view.View.GONE
                         presetPickerScroll.alpha = 1f
                     }.start()
-                    saveBtn.setBackgroundColor(0x00000000)
+                    saveBtn.setBackgroundColor(graphBtnDimBg)
                     saveBtn.strokeColor = android.content.res.ColorStateList.valueOf(graphBtnDimStroke)
                     saveBtn.iconTint = android.content.res.ColorStateList.valueOf(graphBtnDimContent)
                     android.widget.Toast.makeText(this, "Loaded \"$name\"", android.widget.Toast.LENGTH_SHORT).show()
@@ -2062,7 +2078,7 @@ class  MainActivity : AppCompatActivity() {
                     presetPickerScroll.visibility = android.view.View.GONE
                     presetPickerScroll.alpha = 1f
                 }.start()
-                saveBtn.setBackgroundColor(0x00000000)
+                saveBtn.setBackgroundColor(graphBtnDimBg)
                 saveBtn.strokeColor = android.content.res.ColorStateList.valueOf(graphBtnDimStroke)
                 saveBtn.iconTint = android.content.res.ColorStateList.valueOf(graphBtnDimContent)
             }
@@ -2085,7 +2101,7 @@ class  MainActivity : AppCompatActivity() {
                 btn.setTextColor(graphBtnLitContent)
                 btn.iconTint = android.content.res.ColorStateList.valueOf(graphBtnLitContent)
             } else {
-                btn.setBackgroundColor(0x00000000)
+                btn.setBackgroundColor(graphBtnDimBg)
                 btn.strokeColor = android.content.res.ColorStateList.valueOf(graphBtnDimStroke)
                 btn.strokeWidth = (1 * vizDensity).toInt()
                 btn.setTextColor(graphBtnDimContent)
@@ -2287,7 +2303,7 @@ class  MainActivity : AppCompatActivity() {
                     .setInterpolator(android.view.animation.DecelerateInterpolator())
                     .withEndAction { eqPowerToggle.isClickable = true }.start()
 
-                editBtn.setBackgroundColor(0x00000000)
+                editBtn.setBackgroundColor(graphBtnDimBg)
                 editBtn.strokeColor = android.content.res.ColorStateList.valueOf(graphBtnDimStroke)
                 editBtn.iconTint = android.content.res.ColorStateList.valueOf(graphBtnDimContent)
             }
@@ -2359,7 +2375,7 @@ class  MainActivity : AppCompatActivity() {
                 vizToggle.iconTint = android.content.res.ColorStateList.valueOf(graphBtnLitContent)
             } else {
                 vizToggle.alpha = 1.0f
-                vizToggle.setBackgroundColor(0x00000000)
+                vizToggle.setBackgroundColor(graphBtnDimBg)
                 vizToggle.strokeColor = android.content.res.ColorStateList.valueOf(graphBtnDimStroke)
                 vizToggle.strokeWidth = (1 * vizDensity).toInt()
                 vizToggle.iconTint = android.content.res.ColorStateList.valueOf(graphBtnDimContent)
@@ -2777,11 +2793,8 @@ class  MainActivity : AppCompatActivity() {
             )
         }
 
-        // Channel Side EQ card (settings page) — opens the per-channel editor
-        findViewById<View>(R.id.channelSideEqCard).setOnClickListener {
-            startActivity(Intent(this, ChannelSideEqActivity::class.java))
-            overridePendingTransition(R.anim.fade_in, R.anim.fade_out)
-        }
+        // Channel Side Options settings card retired — CSE now toggles via the
+        // power button in the graph's channel popout. See LegacyFeatures.kt.
 
         // Presets & Conversions — opens the sub-screen grouping AutoEQ &
         // Presets, Generate Custom EQ, and Convert to APO. RESULT_OK comes
@@ -3822,7 +3835,7 @@ class  MainActivity : AppCompatActivity() {
             eqPowerToggle.strokeWidth = (2 * d).toInt()
             eqPowerToggle.setTextColor(graphBtnLitContent)
         } else {
-            eqPowerToggle.setBackgroundColor(0x00000000)
+            eqPowerToggle.setBackgroundColor(graphBtnDimBg)
             eqPowerToggle.strokeColor = android.content.res.ColorStateList.valueOf(graphBtnDimStroke)
             eqPowerToggle.strokeWidth = (1 * d).toInt()
             eqPowerToggle.setTextColor(if (isLightUi) 0xFF8B8B8B.toInt() else 0xFF777777.toInt())
@@ -4338,7 +4351,7 @@ class  MainActivity : AppCompatActivity() {
                 btn.strokeWidth = (2 * density).toInt()
                 btn.setTextColor(graphBtnLitContent)
             } else {
-                btn.setBackgroundColor(0x00000000)
+                btn.setBackgroundColor(graphBtnDimBg)
                 btn.strokeColor = android.content.res.ColorStateList.valueOf(graphBtnDimStroke)
                 btn.strokeWidth = (1 * density).toInt()
                 btn.setTextColor(lrDim)
@@ -4346,6 +4359,14 @@ class  MainActivity : AppCompatActivity() {
         }
         val badge = findViewById<android.widget.TextView>(R.id.altRouteChannelBadge)
         val altRouteBtn = findViewById<com.google.android.material.button.MaterialButton>(R.id.altRouteButton)
+        // Power button mirrors the CSE state: lit while Channel Side EQ is
+        // on, dim while off (its icon tint follows the same palette).
+        findViewById<com.google.android.material.button.MaterialButton>(R.id.settingsGearButton)?.let { pwr ->
+            paint(pwr, enabled)
+            pwr.iconTint = android.content.res.ColorStateList.valueOf(
+                if (enabled) graphBtnLitContent else graphBtnDimContent
+            )
+        }
         if (!enabled) {
             paint(lBtn, false); paint(rBtn, false)
             bothBtn?.let { paint(it, false) }
@@ -4387,12 +4408,13 @@ class  MainActivity : AppCompatActivity() {
      *    uses the outlined style. */
     private fun refreshChannelPopoutDim() {
         paintChannelButtonStyles()
-        val enabled = eqPrefs.getChannelSideEqEnabled()
+        // Dim via COLOR only (paintChannelButtonStyles' dim palette), never
+        // view alpha — a translucent button lets the graph's band badges
+        // render straight through it.
         val lBtn = findViewById<View>(R.id.channelLButton) ?: return
         val rBtn = findViewById<View>(R.id.channelRButton) ?: return
-        val a = if (enabled) 1.0f else 0.4f
-        lBtn.alpha = a; rBtn.alpha = a
-        findViewById<View>(R.id.channelBothButton)?.alpha = a
+        lBtn.alpha = 1.0f; rBtn.alpha = 1.0f
+        findViewById<View>(R.id.channelBothButton)?.alpha = 1.0f
     }
 
     /** Rebind the graph + band toggles + input widgets after the active EQ

@@ -84,4 +84,47 @@ object LegacyFeatures {
     // (getBandChannel / setBandChannel / syncBothBands / sanitizeTethers) is
     // still live — only this popup UI entry point was retired.
     // =====================================================================
+
+    // =====================================================================
+    // Channel Side Options settings section (card + screen entry)
+    // Retired 2026-07-14.
+    //
+    // What it was: a "Channel Side Options" card on the Settings page
+    // ("Balance, per-channel EQ, and channel swap") that opened
+    // ChannelSideEqActivity — the screen holding the Channel Side EQ enable
+    // switch, the balance slider, per-channel gain sliders, and channel swap.
+    //
+    // Why retired: Channel Side EQ now toggles directly from the power
+    // button in the graph's channel popout (the old settings-gear slot,
+    // icon @drawable/ic_power_settings_new). The full options screen was a
+    // detour for what is a one-tap on/off in practice.
+    //
+    // What was removed:
+    //
+    // 1) activity_main.xml — the channelSideEqCard MaterialCardView block
+    //    (Settings page, between the Light Theme and Backup & Restore
+    //    cards): title "Channel Side Options", subtitle "Balance,
+    //    per-channel EQ, and channel swap".
+    //
+    // 2) MainActivity — the card's click handler:
+    //
+    //    findViewById<View>(R.id.channelSideEqCard).setOnClickListener {
+    //        startActivity(Intent(this, ChannelSideEqActivity::class.java))
+    //        overridePendingTransition(R.anim.fade_in, R.anim.fade_out)
+    //    }
+    //
+    // 3) MainActivity — the old settings-gear handler on the popout
+    //    (navigated to the Settings page):
+    //
+    //    settingsGearBtn.setOnClickListener {
+    //        pageEq.visibility = View.GONE
+    //        pageSettings.visibility = View.VISIBLE
+    //        updateBottomBarHighlight(isEqPage = false)
+    //    }
+    //
+    // Note: ChannelSideEqActivity itself (with the balance slider and
+    // per-channel gains) still exists and is registered in the manifest —
+    // only its UI entry points were removed. Persisted balance/channel-gain
+    // prefs continue to apply to the DP via EqStateManager.
+    // =====================================================================
 }

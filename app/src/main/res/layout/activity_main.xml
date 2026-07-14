@@ -323,14 +323,14 @@
                             android:minHeight="0dp"
                             android:padding="3dp"
                             android:visibility="gone"
-                            app:icon="@drawable/ic_settings_gear"
+                            app:icon="@drawable/ic_power_settings_new"
                             app:iconGravity="textStart"
                             app:iconPadding="0dp"
                             app:iconTint="?attr/colorOnSurface"
                             app:shapeAppearanceOverlay="@style/ShapeAppearance.ResetButton"
                             app:strokeColor="?attr/colorOutline"
                             app:strokeWidth="1dp"
-                            android:contentDescription="Open Settings" />
+                            android:contentDescription="Toggle Channel Side EQ" />
 
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/channelLButton"
@@ -1180,49 +1180,10 @@
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
 
-                <!-- Channel Side EQ Card — click opens the per-channel editor screen -->
-                <com.google.android.material.card.MaterialCardView
-                    android:id="@+id/channelSideEqCard"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="12dp"
-                    android:clickable="true"
-                    android:focusable="true"
-                    app:cardBackgroundColor="?attr/colorSurfaceContainerHigh"
-                    app:cardCornerRadius="16dp"
-                    app:cardElevation="0dp"
-                    app:strokeWidth="0dp">
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical"
-                        android:padding="16dp">
-
-                        <LinearLayout
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:orientation="vertical">
-
-                            <TextView
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:text="Channel Side Options"
-                                android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
-                                android:textColor="?attr/colorOnSurface" />
-
-                            <TextView
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:text="Balance, per-channel EQ, and channel swap"
-                                android:textAppearance="@style/TextAppearance.Material3.BodySmall"
-                                android:textColor="?attr/colorOnSurfaceVariant"
-                                android:paddingTop="4dp" />
-                        </LinearLayout>
-                    </LinearLayout>
-                </com.google.android.material.card.MaterialCardView>
+                <!-- Channel Side Options card retired — CSE toggles via the
+                     power button in the graph's channel popout; the old
+                     Balance / per-channel screen entry lives in
+                     LegacyFeatures.kt for reference. -->
 
                 <!-- Backup & Restore — export/import all settings, presets,
                      and bindings so they survive a reinstall / source switch. -->
