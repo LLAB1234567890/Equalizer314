@@ -34,6 +34,7 @@ class ExperimentalActivity : AppCompatActivity() {
         setupHideNotification()
         setupFrameSlider()
         setupInterleave()
+        setupCompatMode()
         setupTvMode()
 
         // Hide the legacy "Experimental DP Engine" switch row — the
@@ -136,6 +137,19 @@ class ExperimentalActivity : AppCompatActivity() {
         switch.setOnCheckedChangeListener { _, isChecked ->
             eqPrefs.saveDpInterleave(isChecked)
             com.bearinmind.equalizer314.audio.DynamicsProcessingManager.interleaveEnabled = isChecked
+            requestDpRecycle()
+        }
+    }
+
+    // Compatibility Mode: cap DP at 32 bands for band-limited HALs (Pixel /
+    // some Samsung). Auto-on for Google/Pixel by default. Baked at DP
+    // creation → recycle the live DP on change.
+    private fun setupCompatMode() {
+        val switch = findViewById<com.google.android.material.materialswitch.MaterialSwitch>(R.id.expCompatModeSwitch)
+        switch.isChecked = eqPrefs.getDpCompatMode()
+        switch.setOnCheckedChangeListener { _, isChecked ->
+            eqPrefs.saveDpCompatMode(isChecked)
+            com.bearinmind.equalizer314.audio.DynamicsProcessingManager.compatMode = isChecked
             requestDpRecycle()
         }
     }

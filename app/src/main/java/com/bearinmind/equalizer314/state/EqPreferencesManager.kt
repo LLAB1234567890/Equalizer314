@@ -297,6 +297,18 @@ class EqPreferencesManager(context: Context) {
     fun saveDpInterleave(enabled: Boolean) { prefs.edit().putBoolean("dpInterleave", enabled).apply() }
     fun getDpInterleave(): Boolean = prefs.getBoolean("dpInterleave", false)
 
+    // Compatibility Mode: cap DP at 32 bands for HALs that render ~32 bands
+    // regardless of the count requested (a 128-band curve mangles otherwise).
+    // Baked at DP creation; needs an EQ power cycle. Default = auto-on for
+    // Google/Pixel (most-reported band-limited HAL) so those users get a
+    // correct curve out of the box; everyone else defaults off + manual toggle.
+    fun saveDpCompatMode(enabled: Boolean) { prefs.edit().putBoolean("dpCompatMode", enabled).apply() }
+    fun getDpCompatMode(): Boolean =
+        prefs.getBoolean("dpCompatMode", defaultCompatMode())
+    private fun defaultCompatMode(): Boolean =
+        android.os.Build.MANUFACTURER.equals("Google", true) ||
+            android.os.Build.MODEL.startsWith("Pixel", true)
+
     // Limiter
     fun saveLimiterEnabled(enabled: Boolean) { prefs.edit().putBoolean("limiterEnabled", enabled).apply() }
     fun getLimiterEnabled(): Boolean = prefs.getBoolean("limiterEnabled", false)

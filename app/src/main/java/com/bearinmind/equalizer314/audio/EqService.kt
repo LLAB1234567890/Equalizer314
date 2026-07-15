@@ -357,6 +357,7 @@ class EqService : Service() {
         EqPreferencesManager(this).let { p ->
             DynamicsProcessingManager.frameDurationMs = p.getDpFrameMs()
             DynamicsProcessingManager.interleaveEnabled = p.getDpInterleave()
+            DynamicsProcessingManager.compatMode = p.getDpCompatMode()
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(

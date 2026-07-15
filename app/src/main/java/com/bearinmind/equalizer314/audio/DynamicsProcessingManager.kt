@@ -55,6 +55,16 @@ class DynamicsProcessingManager {
         // prefs-driven setup before start().
         @Volatile
         var interleaveEnabled = false
+        // Compatibility Mode: some HALs (Pixel, some MediaTek/Samsung) render
+        // only ~32 effective DP bands regardless of the count requested — a
+        // 128-band curve gets mangled. Requesting 32 directly makes our
+        // cutoffs land 1:1 on what the HAL actually renders (Wavelet's
+        // "legacy mode" does the same). Note: Config.getPreEqBandCount()
+        // reports the REQUESTED count, not the HAL's real limit, so this
+        // can't be auto-detected on the classic AudioEffect path.
+        const val COMPAT_BAND_COUNT = 32
+        @Volatile
+        var compatMode = false
     }
 
     private var dynamicsProcessing: DynamicsProcessing? = null
@@ -123,10 +133,10 @@ class DynamicsProcessingManager {
         // Keep the converter's model of DP's FFT geometry in sync so its
         // deconvolution matches the engine (issue #26).
         ParametricToDpConverter.frameDurationMs = frameDurationMs
-        // 128 pre-EQ bands — the public API's hard ceiling (Android's AIDL
-        // layer clamps preEq bandCount to 128; requesting more throws,
-        // logcat-verified). 127 kept as a paranoid fallback.
-        for (tryBands in intArrayOf(128, 127)) {
+        // Compat Mode → 32 bands to match band-limited HALs; else 128 (the
+        // AIDL ceiling; requesting more throws) with 127 paranoid fallback.
+        val bandLadder = if (compatMode) intArrayOf(COMPAT_BAND_COUNT) else intArrayOf(128, 127)
+        for (tryBands in bandLadder) {
             ParametricToDpConverter.setNumBands(tryBands)
             if (startWithBandCount(eq, ParametricToDpConverter.numBands)) return
             Log.w(TAG, "DP creation failed with ${ParametricToDpConverter.numBands} bands")
@@ -136,7 +146,7 @@ class DynamicsProcessingManager {
         if (interleaveEnabled) {
             Log.w(TAG, "Retrying without Pre+Post interleave")
             interleaveEnabled = false
-            for (tryBands in intArrayOf(128, 127)) {
+            for (tryBands in bandLadder) {
                 ParametricToDpConverter.setNumBands(tryBands)
                 if (startWithBandCount(eq, ParametricToDpConverter.numBands)) return
                 Log.w(TAG, "DP creation failed with ${ParametricToDpConverter.numBands} bands")

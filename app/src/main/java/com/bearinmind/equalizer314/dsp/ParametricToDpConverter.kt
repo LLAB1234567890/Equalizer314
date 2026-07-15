@@ -250,10 +250,15 @@ object ParametricToDpConverter {
         get() = WAVELET_FREQUENCIES.copyOf()
 
     fun setNumBands(count: Int) {
-        // Two supported tiers: 256 (default — halves the per-stair ripple
-        // floor) and 127 (compatibility fallback if a device rejects the
-        // 256-band DP config; also Wavelet/AutoEQ parity).
-        numBands = if (count <= 127) 127 else 128
+        // Tiers: 32 (Compat Mode, band-limited HALs), 127 (Wavelet/AutoEQ
+        // parity / DP-config fallback), 128 (default). adaptiveCutoffs
+        // trims its seed to whichever count, so 32 just yields 32
+        // adaptively-placed cutoffs.
+        numBands = when {
+            count <= 32 -> 32
+            count <= 127 -> 127
+            else -> 128
+        }
     }
 
     /** Center frequencies (geometric mean of each band's edges). */
