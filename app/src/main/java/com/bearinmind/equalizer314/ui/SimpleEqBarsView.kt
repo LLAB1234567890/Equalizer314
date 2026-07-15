@@ -47,17 +47,15 @@ class SimpleEqBarsView @JvmOverloads constructor(
         textAlign = Paint.Align.CENTER
     }
 
-    // Paints above default to the dark palette; flip them in light mode.
-    // The view is reconstructed on theme change (the activity recreates),
-    // so a one-shot init is enough.
+    // Dark-default paints flipped in light mode; the view is reconstructed on
+    // theme change (activity recreates), so a one-shot init is enough.
     init {
         val isLight = (resources.configuration.uiMode and
             android.content.res.Configuration.UI_MODE_NIGHT_MASK) !=
             android.content.res.Configuration.UI_MODE_NIGHT_YES
         if (isLight) {
-            // Exact mirrors of the dark values (same luminance distance
-            // from the light card bg as dark, inverted) so the light
-            // theme keeps the dark theme's contrast relationships.
+            // Exact luminance mirrors of the dark values — light theme keeps the
+            // dark theme's contrast relationships.
             barPaint.color = 0xFF525252.toInt()        // dark #B0B0B0
             barBgPaint.color = 0xFFD8D8D8.toInt()      // dark #2A2A2A
             centerLinePaint.color = 0xFFBEBEBE.toInt() // dark #444444
@@ -79,12 +77,9 @@ class SimpleEqBarsView @JvmOverloads constructor(
     private var lastTapBand = -1
     private var doubleTapReset = false // skip ACTION_MOVE after double-tap reset
 
-    // Drag-from-original-position model: ACTION_DOWN doesn't snap the
-    // bar to the touch's Y position. Instead it records where the
-    // finger started (touchDownY) and what the bar's gain was at that
-    // moment (touchDownGain). ACTION_MOVE applies the finger's *delta*
-    // since DOWN to that starting gain. So a tap leaves the bar
-    // unchanged; only a swipe up/down moves it.
+    // Drag-from-original-position: DOWN records touchDownY + touchDownGain (no
+    // snap); MOVE applies the finger's delta. A tap leaves the bar unchanged,
+    // only a swipe moves it.
     private var touchDownY = 0f
     private var touchDownGain = 0f
 
@@ -216,9 +211,8 @@ class SimpleEqBarsView @JvmOverloads constructor(
                     activeBand = band
                     doubleTapReset = false
                     animatePop(band, true) // pop out the active bar
-                    // Double-tap detection — second tap on the same band
-                    // within 300 ms still resets that bar to 0 dB. Single
-                    // tap (no swipe) leaves the bar where it is.
+                    // Second tap on the same band within 300 ms resets it to 0 dB;
+                    // a single tap leaves the bar alone.
                     val now = System.currentTimeMillis()
                     if (now - lastTapTime < 300 && band == lastTapBand) {
                         gains[band] = 0f
@@ -227,9 +221,8 @@ class SimpleEqBarsView @JvmOverloads constructor(
                         lastTapTime = 0
                         doubleTapReset = true // ignore ACTION_MOVE until finger lifts
                     } else {
-                        // Don't change the bar's gain on touch-down.
-                        // Record the starting finger Y and the bar's
-                        // current gain so ACTION_MOVE can apply a delta.
+                        // Record starting Y + gain so ACTION_MOVE applies a delta
+                        // (no gain change on touch-down).
                         touchDownY = event.y
                         touchDownGain = gains[band]
                         lastTapTime = now
@@ -241,9 +234,7 @@ class SimpleEqBarsView @JvmOverloads constructor(
             }
             MotionEvent.ACTION_MOVE -> {
                 if (activeBand >= 0 && !doubleTapReset) {
-                    // Convert finger movement to a gain delta. Moving
-                    // the finger up (smaller Y) should INCREASE the
-                    // gain, hence (touchDownY - event.y).
+                    // Finger up (smaller Y) increases gain, hence (touchDownY - event.y).
                     val pxPerDb = getBarHeight() / (MAX_DB - MIN_DB)
                     val deltaDb = (touchDownY - event.y) / pxPerDb
                     val newGain = (touchDownGain + deltaDb).coerceIn(MIN_DB, MAX_DB)

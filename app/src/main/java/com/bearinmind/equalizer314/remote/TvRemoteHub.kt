@@ -59,13 +59,11 @@ object TvRemoteHub {
     @Volatile
     private var applyingRemote = false
 
-    /** The wider echo guard: applying a remote state has ASYNC fallout
-     *  (DP start broadcasts, activity resumes) that lands after the
-     *  synchronous [applyingRemote] window and used to echo a STALE state
-     *  back — measured killing a remote power-on (the echo still said
-     *  power=false and the remote obediently shut itself off). After any
-     *  incoming apply, this side stays quiet for a beat; the peer driving
-     *  the change is the source of truth. */
+    /** Wider echo guard: a remote apply has ASYNC fallout (DP-start
+     *  broadcasts, activity resumes) landing after the [applyingRemote]
+     *  window; echoing that stale state killed remote power-ons (echoed
+     *  power=false shut the remote back off). Stay quiet after any incoming
+     *  apply — the driving peer is the source of truth. */
     @Volatile
     private var suppressSendUntil = 0L
 
@@ -91,9 +89,8 @@ object TvRemoteHub {
             MODE_SERVER -> startServer(context)
             else -> status("")
         }
-        // Pin EqService foreground while a role is active (survives app
-        // switches on the TV) and retitle the notification; mode Off just
-        // refreshes back to the normal Online/Offline title.
+        // Role active → pin EqService foreground (cached-app freezer kills
+        // the socket otherwise) + retitle notification; Off → normal title.
         try {
             val i = android.content.Intent(
                 context.applicationContext,
@@ -125,9 +122,8 @@ object TvRemoteHub {
             applyState = { st -> applyRemoteState(st) },
             onStatus = { msg -> status(msg) },
             onClientsChanged = { n ->
-                // Hub owns the touch lock so it works no matter which
-                // screen is up; extra listeners (e.g. the Experimental
-                // card's PIN popup auto-dismiss) ride along.
+                // Hub owns the touch lock (works on any screen); extra
+                // listeners (PIN popup auto-dismiss) ride along.
                 RemoteScrim.setActive(n > 0)
                 serverClientsListener?.invoke(n)
             },

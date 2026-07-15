@@ -112,10 +112,9 @@ class LimiterActivity : AppCompatActivity() {
             if (svc.dynamicsManager.isActive) {
                 svc.dynamicsManager.stop()
             } else {
-                // Promote the service to a started foreground service so it
-                // survives activity unbind/rebind across navigation. Without
-                // this the service is bind-only and gets destroyed the
-                // moment LimiterActivity exits, tearing DP down with it.
+                // Promote to a started foreground service so it survives activity
+                // unbind/rebind; bind-only would be destroyed when LimiterActivity exits,
+                // tearing DP down with it.
                 EqService.start(this)
                 val tempEq = com.bearinmind.equalizer314.dsp.ParametricEqualizer()
                 eqPrefs.restoreState(tempEq)
@@ -584,11 +583,9 @@ class LimiterActivity : AppCompatActivity() {
     private fun pushToService() {
         val svc = eqService ?: return
         if (!svc.dynamicsManager.isActive) return
-        // Update limiter fields and apply via setLimiterByChannelIndex on the
-        // live DP. Earlier code recreated the entire DynamicsProcessing
-        // instance per slider tick which caused audio dropouts and ~100 ms of
-        // UI hitch per tick — the live update path is dispatched to the
-        // worker thread and coalesced.
+        // Update limiter fields via live DP setLimiterByChannelIndex (dispatched to
+        // worker thread + coalesced). Recreating the whole DynamicsProcessing per tick
+        // caused audio dropouts and ~100 ms UI hitch per tick.
         val dm = svc.dynamicsManager
         dm.limiterEnabled = eqPrefs.getLimiterEnabled()
         dm.limiterAttackMs = eqPrefs.getLimiterAttack()

@@ -6,16 +6,10 @@ import kotlin.math.log10
 import kotlin.math.pow
 
 /**
- * Computes per-band gain reduction for MBC visualization.
- *
- * KEY PRINCIPLE: Gain reduction depends on the ACTUAL INPUT LEVEL each frame,
- * not just on the compressor settings. This is what makes compression different
- * from a simple gain knob.
- *
- * Usage in your renderer:
- *   1. Each frame, pass the current FFT spectrum to computeAllBandGains()
- *   2. Use getGainAtFrequency() when drawing each pixel of the output spectrum
- *   3. Output pixel dB = input pixel dB + gainAtFrequency
+ * Computes per-band gain reduction for MBC visualization. GR depends on the ACTUAL INPUT LEVEL each
+ * frame, not just compressor settings (that's what distinguishes compression from a gain knob).
+ * Usage: each frame pass FFT spectrum to computeAllBandGains(), then output pixel dB = input pixel dB
+ * + getGainAtFrequency().
  */
 class MbcGainComputer(private val numBands: Int) {
 
@@ -49,13 +43,8 @@ class MbcGainComputer(private val numBands: Int) {
     )
 
     /**
-     * The compressor transfer function.
-     *
-     * Given an input level in dB, returns the gain reduction in dB.
-     * Return value is ALWAYS <= 0 for compression (ratio > 1).
-     * Return value is 0 when input is below threshold (no compression happening).
-     *
-     * This is the industry-standard soft-knee formula from Giannoulis et al. (JAES 2012).
+     * Compressor transfer function: input level dB → GR dB. Always <= 0 for compression (ratio > 1),
+     * 0 when input below threshold. Soft-knee formula from Giannoulis et al. (JAES 2012).
      */
     fun computeGainReduction(inputDb: Float, threshold: Float, ratio: Float, kneeWidth: Float): Float {
         if (ratio <= 1f) return 0f  // ratio of 1:1 = no compression
@@ -89,10 +78,8 @@ class MbcGainComputer(private val numBands: Int) {
     }
 
     /**
-     * Compute the expander/gate gain reduction for levels below the noise gate threshold.
-     *
-     * Returns <= 0 (attenuation). When expanderRatio = 1, returns 0 (no gating).
-     * Higher expanderRatio = more aggressive gating.
+     * Expander/gate GR for levels below the noise gate threshold. Returns <= 0 (attenuation);
+     * 0 when expanderRatio = 1. Higher expanderRatio = more aggressive gating.
      */
     fun computeExpanderGR(inputDb: Float, noiseGateThreshold: Float, expanderRatio: Float): Float {
         if (expanderRatio <= 1f || inputDb >= noiseGateThreshold) return 0f
@@ -140,8 +127,7 @@ class MbcGainComputer(private val numBands: Int) {
     }
 
     /**
-     * Main entry point: compute gain for all bands from current FFT data.
-     * Call this EVERY FRAME in your renderer.
+     * Main entry point: compute gain for all bands from current FFT data. Call EVERY FRAME.
      *
      * @param spectrumDb     Current per-bin dB values from the FFT
      * @param sampleRate     Audio sample rate
@@ -180,10 +166,8 @@ class MbcGainComputer(private val numBands: Int) {
             // Step 5: Total GR is the sum of compressor and expander
             val totalGR = compressorGR + expanderGR
 
-            // Step 6: Smooth GR for animation using actual attack/release times
-            // Formula: alpha = 1 - exp(-dt / timeMs)
-            // dt = 33ms (30fps display), timeMs = attack or release in ms
-            // Reference: ITU-R BS.1770, JUCE CompressorBand, standard EMA envelope follower
+            // Step 6: Smooth GR for animation. alpha = 1 - exp(-dt / timeMs), dt = 33ms (30fps),
+            // timeMs = attack/release ms. Ref: ITU-R BS.1770, JUCE CompressorBand, EMA envelope follower.
             val dt = 33f  // ~30fps frame interval
             val attackAlpha = (1f - exp(-dt / s.attackMs.coerceAtLeast(0.01f))).coerceIn(0.0001f, 1f)
             val releaseAlpha = (1f - exp(-dt / s.releaseMs.coerceAtLeast(1f))).coerceIn(0.0001f, 1f)
@@ -205,8 +189,7 @@ class MbcGainComputer(private val numBands: Int) {
     }
 
     /**
-     * Get the total gain at a specific frequency, with crossover blending.
-     * Call this for each pixel when drawing the output spectrum.
+     * Total gain at a frequency, with crossover blending. Call per pixel when drawing output spectrum.
      *
      * @param freq  Frequency in Hz
      * @return Total gain in dB to add to the input spectrum at this frequency
@@ -237,10 +220,7 @@ class MbcGainComputer(private val numBands: Int) {
         return bandTotalGains[band.coerceIn(0, numBands - 1)]
     }
 
-    /**
-     * Get the current smoothed gain reduction (not total gain) for display purposes.
-     * E.g. for showing a GR meter per band.
-     */
+    /** Current smoothed gain reduction (not total gain), e.g. for a per-band GR meter. */
     fun getSmoothedGR(bandIndex: Int): Float = smoothedGR.getOrElse(bandIndex) { 0f }
 
     /** Compressor-only GR (excludes expander/gate). Use for the GR trace display. */

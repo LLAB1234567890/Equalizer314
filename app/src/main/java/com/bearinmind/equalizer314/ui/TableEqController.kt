@@ -98,9 +98,8 @@ class TableEqController(
             gravity = android.view.Gravity.CENTER
             setPadding((4 * density).toInt(), (4 * density).toInt(), (4 * density).toInt(), (4 * density).toInt())
         }
-        // Keep the original enabled look (grey cell + colored stroke/number);
-        // only the INSIDE fill dims when the band is turned off, so toggling
-        // visibly turns the cell on/off rather than just the outline.
+        // Grey cell + colored stroke/number; only the INSIDE fill dims when the
+        // band is off, so toggling visibly turns the cell on/off.
         fun applyNumBoxStyle(enabled: Boolean) {
             val colored = state.bandColors.containsKey(slotIndex)
             val color = state.bandColors[slotIndex] ?: 0xFF666666.toInt()
@@ -119,9 +118,8 @@ class TableEqController(
         if (!band.enabled) row.alpha = 0.5f
         row.addView(numBox)
 
-        // Full 12-token APO vocabulary. Parallel lists: label[i] ↔ type[i].
-        // BYPASS is the last entry and maps to ALL_PASS (matches the
-        // Parametric-mode Bypass↔AP tie).
+        // Full 12-token APO vocabulary; parallel lists label[i] ↔ type[i].
+        // BYPASS is last and maps to ALL_PASS (Parametric-mode Bypass↔AP tie).
         val filterTypeNames = listOf(
             "PEAK",
             "LSHELF", "LSHELF 6dB",
@@ -173,10 +171,8 @@ class TableEqController(
                         setPadding((16 * density).toInt(), (14 * density).toInt(), (16 * density).toInt(), (14 * density).toInt())
                         setOnClickListener {
                             val b = eq.getBand(bandIndex) ?: return@setOnClickListener
-                            // Apply the chosen type directly; BYPASS = ALL_PASS
-                            // per the Parametric-mode model. Re-enable the
-                            // band regardless so no band stays in the legacy
-                            // disabled state.
+                            // BYPASS = ALL_PASS per the Parametric model; re-enable so
+                            // no band stays in the legacy disabled state.
                             if (!b.enabled) eq.setBandEnabled(bandIndex, true)
                             eq.updateBand(bandIndex, b.frequency, b.gain, filterTypeValues[idx], b.q)
                             row.alpha = 1f
@@ -237,11 +233,10 @@ class TableEqController(
                     }
                     true
                 }
-                // Commit on focus loss too — without this, typing a value and
-                // then tapping another field / dismissing the keyboard leaves
-                // the edit uncommitted (the table shows the new number but the
-                // EQ and graph never change). Done-key path above also lands
-                // here via clearFocus(); onDone is idempotent so that's fine.
+                // Commit on focus loss too — otherwise tapping another field or
+                // dismissing the keyboard leaves the edit uncommitted (table shows the
+                // number, EQ/graph don't change). onDone is idempotent, so the Done-key
+                // path landing here via clearFocus() is fine.
                 setOnFocusChangeListener { _, hasFocus ->
                     if (!hasFocus) onDone(text.toString())
                 }

@@ -13,23 +13,14 @@ import android.os.Looper
 import android.util.Log
 
 /**
- * Watches the active audio output and emits a debounced
- * `RouteChange(deviceKey, deviceLabel)` event whenever it changes.
- * Owned by [EqService] for its lifetime.
+ * Watches the active audio output and emits a debounced `RouteChange(deviceKey, deviceLabel)` on
+ * change. Owned by [EqService]. Detection via [AudioManager.registerAudioDeviceCallback] (API 23+);
+ * also registers an [AudioManager.ACTION_AUDIO_BECOMING_NOISY] receiver so abrupt pulls (yanked
+ * headphones, BT out of range) recompute even when the device-removed callback lags.
  *
- * Detection uses [AudioManager.registerAudioDeviceCallback] (API 23+),
- * the canonical surface for output routing on modern Android. We also
- * register an [AudioManager.ACTION_AUDIO_BECOMING_NOISY] receiver so
- * abrupt pulls (yanked headphones, BT walked-out-of-range) trigger a
- * recompute even when the device-removed callback lags.
- *
- * Active-output picker: among all connected outputs filtered by
- * [DeviceIdentity], we pick the highest-priority one (BT > USB >
- * wired > speaker). This is the same heuristic Wavelet uses; it
- * matches Android's own routing default for `STREAM_MUSIC`.
- *
- * Debounce: BT A2DP routing flaps during connect/handover. We
- * coalesce events with a 400 ms postDelayed window before emitting.
+ * Active-output picker: highest-priority connected output tracked by [DeviceIdentity]
+ * (BT > USB > wired > speaker) — matches Android's STREAM_MUSIC routing default. Debounce: BT A2DP
+ * flaps during connect/handover, so coalesce with a 400 ms postDelayed window.
  */
 class AudioRoutingMonitor(
     private val context: Context,
@@ -40,20 +31,15 @@ class AudioRoutingMonitor(
     /** Listener fires on the main thread after the debounce window. */
     var onRouteChange: ((RouteChange) -> Unit)? = null
 
-    /** Fires on the main thread for every tracked output device the
-     *  monitor learns about — immediately on connect, and once at
-     *  start-up for everything already connected. Used to populate the
-     *  Audio Output screen's "seen devices" list so a device shows up
-     *  as soon as it's plugged in, not only once it's been routed to. */
+    /** Fires (main thread) for every tracked output device on connect, and once at start-up for
+     *  everything already connected. Populates the "seen devices" list so a device shows on plug-in,
+     *  not only once routed to. */
     var onDeviceSeen: ((key: String, label: String) -> Unit)? = null
 
-    /** Fires (debounced, main thread) on **every** device add/remove —
-     *  regardless of whether the active sink's key actually changed.
-     *  [onRouteChange] short-circuits on same-key events; this one
-     *  doesn't, so callers can use it to react to internal route /
-     *  sample-rate changes a `DynamicsProcessing` needs to track.
-     *  Matches Poweramp's `e80.java` `AudioDeviceCallback` →
-     *  `s90.java:377-400` per-session rebuild pattern. */
+    /** Fires (debounced, main thread) on every device add/remove regardless of active-sink key change.
+     *  Unlike [onRouteChange] (which short-circuits same-key), lets callers react to internal route /
+     *  sample-rate changes DynamicsProcessing must track. Matches Poweramp's `e80.java`
+     *  `AudioDeviceCallback` → `s90.java:377-400` per-session rebuild. */
     var onRouteRebuild: (() -> Unit)? = null
 
     private val audioManager =
@@ -65,10 +51,8 @@ class AudioRoutingMonitor(
 
     private val deviceCallback = object : AudioDeviceCallback() {
         override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>?) {
-            // Remember every tracked output as soon as it appears, not
-            // just when it becomes the active sink. This is what makes
-            // a freshly-plugged-in device show up in the Audio Output
-            // screen immediately.
+            // Remember every tracked output on appearance (not just when active) so a freshly
+            // plugged-in device shows in the Audio Output screen immediately.
             addedDevices?.forEach { reportSeen(it) }
             schedule()
         }
@@ -87,10 +71,8 @@ class AudioRoutingMonitor(
 
     private val noisyReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            // Audio is becoming noisy → routing is about to flip back
-            // to the speaker. Schedule a recompute; the device-removed
-            // callback usually fires immediately after, but this gives
-            // us a head-start.
+            // Becoming noisy → routing about to flip back to speaker. Recompute for a head-start on
+            // the device-removed callback that usually follows.
             schedule()
         }
     }

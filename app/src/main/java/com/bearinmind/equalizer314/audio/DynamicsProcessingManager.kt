@@ -32,40 +32,36 @@ class DynamicsProcessingManager {
     companion object {
         private const val TAG = "DynamicsProcessingMgr"
         // FFT frame duration — mirrored into ParametricToDpConverter so its
-        // deconvolution matches the engine's real bin layout. 80 ms
-        // (~12 Hz bins) default: same frame class as Wavelet's DEFAULT
-        // long-frame mode (4096 samples ≈ 85 ms) and Poweramp (85-341 ms),
-        // so the latency is market-proven — and it's what gets the rendered
-        // curve to ~0.1 dB worst-case (issue #26). 40 ms (~23 Hz bins) via
-        // the experimental "Low latency mode" toggle trades sub-100 Hz
-        // accuracy (~0.25 dB) for half the latency. Static so EqService /
-        // ExperimentalActivity can set it from prefs before start() runs.
+        // deconvolution matches the engine's real bin layout. Default 80 ms
+        // (~12 Hz bins): same frame class as Wavelet's default long-frame
+        // mode (4096 samples ≈ 85 ms) and Poweramp (85-341 ms), and gets the
+        // rendered curve to ~0.1 dB worst-case (issue #26). 40 ms (~23 Hz
+        // bins, experimental "Low latency mode") trades sub-100 Hz accuracy
+        // (~0.25 dB) for half the latency. Static so EqService /
+        // ExperimentalActivity can set it from prefs before start().
         const val FRAME_DURATION_DEFAULT_MS = 80f
         const val FRAME_DURATION_LOW_LATENCY_MS = 40f
-        // "Maximum bass precision": 160 ms -> ~5.9 Hz bins. REW-measured
-        // need: at 80 ms, EQ features only 2-3 bins wide (e.g. a Q=2 bell
-        // at 60 Hz) render with ~0.9 dB smoothing; 160 ms halves the bin
-        // width. Latency-precedented: Poweramp runs up to 341 ms frames.
+        // "Maximum bass precision": 160 ms → ~5.9 Hz bins. REW-measured: at
+        // 80 ms, features only 2-3 bins wide (e.g. Q=2 bell at 60 Hz) render
+        // with ~0.9 dB smoothing; 160 ms halves the bin width. Poweramp runs
+        // up to 341 ms frames, so the latency is precedented.
         const val FRAME_DURATION_MAX_PRECISION_MS = 160f
         @Volatile
         var frameDurationMs = FRAME_DURATION_DEFAULT_MS
-        // Experimental Pre+Post-EQ interleave (issue #26 follow-up): use
-        // BOTH DP EQ stages (128 bands each) with Post's cutoffs offset half
-        // a stair from Pre's — 256 effective stairs, roughly halving the
-        // per-stair ripple that dominates the remaining rendering error.
-        // Baked in at DP creation (needs an EQ power cycle to change), like
-        // frameDurationMs. Static so EqService / ExperimentalActivity can
-        // set it from prefs before start() runs.
+        // Experimental Pre+Post-EQ interleave (issue #26 follow-up): both DP
+        // EQ stages (128 bands each), Post's cutoffs offset half a stair from
+        // Pre's — 256 effective stairs, roughly halving per-stair ripple.
+        // Baked in at DP creation (power cycle to change). Static for
+        // prefs-driven setup before start().
         @Volatile
         var interleaveEnabled = false
     }
 
     private var dynamicsProcessing: DynamicsProcessing? = null
     private var currentBandCount = 0
-    // Whether the LIVE DP config was built with the Post-EQ stage allocated.
-    // Band writes must match the live config, not the static flag — the user
-    // can flip the experimental toggle while DP is running, and it only takes
-    // effect on the next power cycle.
+    // Whether the LIVE DP config allocated the Post-EQ stage. Band writes
+    // must match the live config, not the static flag — the toggle can flip
+    // while DP runs and only applies on the next power cycle.
     private var currentInterleave = false
     private var lastEq: com.bearinmind.equalizer314.dsp.ParametricEqualizer? = null
     // Optional right-channel EQ for per-channel mode. When null, lastEq is
@@ -91,11 +87,10 @@ class DynamicsProcessingManager {
     var mbcEnabled: Boolean = false
     var mbcBandCount: Int = 3
 
-    // Limiter — defaults match Wavelet's `a6/z.java:105` baseline
-    // (1 ms attack, 60 ms release, 10:1 ratio, −2 dB threshold, 0 dB
-    // post-gain). EqStateManager will overwrite these from user prefs
-    // before start(); these values are the in-class fallback for the
-    // very-first call before sync.
+    // Limiter defaults = Wavelet's `a6/z.java:105` baseline (1 ms attack,
+    // 60 ms release, 10:1 ratio, −2 dB threshold, 0 dB post-gain).
+    // EqStateManager overwrites from user prefs before start(); these are
+    // the fallback for the very-first call before sync.
     var limiterEnabled: Boolean = true
     var limiterAttackMs: Float = 1f
     var limiterReleaseMs: Float = 60f
@@ -109,10 +104,9 @@ class DynamicsProcessingManager {
     var leftChannelGainDb: Float = 0f      // -12..12
     var rightChannelGainDb: Float = 0f     // -12..12
 
-    // Background thread for the binder calls. Each EQ update issues one
-    // setPreEqByChannelIndex transaction per channel; running them on the
-    // UI thread blocks both rendering and (under contention) the audio
-    // path during a drag.
+    // Worker thread for binder calls: one setPreEqByChannelIndex transaction
+    // per channel per update — on the UI thread these block rendering and
+    // (under contention) the audio path during a drag.
     private val workerThread = android.os.HandlerThread("EqDpWorker").apply { start() }
     private val workerHandler = android.os.Handler(workerThread.looper)
     @Volatile private var pendingApply: Runnable? = null
@@ -156,10 +150,9 @@ class DynamicsProcessingManager {
         val useInterleave = interleaveEnabled
         Log.d(TAG, "DP variant=FREQUENCY bands=$bandCount frame=${frameDurationMs}ms interleave=$useInterleave")
 
-        // MBC stage: always allocate the stage with at least 1 band
-        // (dummy disabled passthrough when MBC is user-disabled). Wavelet
-        // does this regardless of MBC state — the stage existing seems
-        // to be the expected DP usage pattern.
+        // MBC stage: always allocate ≥1 band (dummy disabled passthrough when
+        // MBC off). Wavelet does this regardless of MBC state — the stage
+        // existing seems to be the expected DP usage pattern.
         val mbcStageBandCount = if (mbcEnabled) mbcBandCount else 1
         val configBuilder = DynamicsProcessing.Config.Builder(
             variant,
@@ -190,9 +183,8 @@ class DynamicsProcessingManager {
             currentInterleave = useInterleave
             dynamicsProcessing = DynamicsProcessing(Int.MAX_VALUE, 0, config).apply {
                 // Stage population order matches Wavelet's a6/b0.smali:
-                // limiter → MBC → pre-EQ → setEnabled. Setting enabled
-                // last avoids DP processing audio with default bands
-                // before our real values arrive.
+                // limiter → MBC → pre-EQ → setEnabled. Enabled last so DP
+                // never processes audio with default bands.
 
                 // Limiter for clipping protection
                 val limiter = DynamicsProcessing.Limiter(
@@ -204,9 +196,8 @@ class DynamicsProcessingManager {
                 setLimiterByChannelIndex(1, limiter)
                 Log.d(TAG, "Limiter config: enabled=$limiterEnabled thresh=$limiterThresholdDb ratio=$limiterRatio attack=$limiterAttackMs release=$limiterReleaseMs postGain=$limiterPostGainDb")
 
-                // Dummy MBC band when user has MBC off — passthrough so
-                // the audio is unchanged but the stage reports the
-                // band slot DP allocated.
+                // Dummy passthrough MBC band when MBC off — audio unchanged,
+                // stage still reports its allocated band slot.
                 if (!mbcEnabled) {
                     val dummyMbc = DynamicsProcessing.MbcBand(
                         false,        // enabled = false (passthrough)
@@ -217,9 +208,8 @@ class DynamicsProcessingManager {
                     setMbcBandByChannelIndex(1, 0, dummyMbc)
                 }
 
-                // Apply parametric response, then enable. drainPendingApply
-                // blocks until the band write lands so DP doesn't briefly
-                // run with default bands.
+                // Apply response, then enable — drainPendingApply blocks
+                // until the band write lands (no default-band audio).
                 applyParametricResponse(this, eq)
                 drainPendingApply()
                 enabled = true
@@ -241,10 +231,9 @@ class DynamicsProcessingManager {
             currentBandCount = bandCount
             isActive = true
             Log.d(TAG, "DynamicsProcessing started with $bandCount bands (interleave=$useInterleave)")
-            // Diagnostic readback (issue #26): what the ENGINE actually
-            // accepted, vs what we requested — catches OEMs clamping the
-            // frame duration / band count silently. Read via:
-            //   adb logcat -s DynamicsProcessingMgr
+            // Diagnostic readback (issue #26): engine-accepted vs requested —
+            // catches OEMs silently clamping frame duration / band count.
+            // Read via: adb logcat -s DynamicsProcessingMgr
             try {
                 val actual = dynamicsProcessing?.config
                 Log.i(TAG, "DP config readback: variant=${actual?.variant} " +
@@ -266,16 +255,14 @@ class DynamicsProcessingManager {
     }
 
     /**
-     * Block the calling thread until any pending [applyParametricResponse]
-     * worker job has executed. Used in [start] so the band feed lands
-     * BEFORE we toggle `enabled = true` — the Wavelet ordering. No-op
-     * when no job is queued.
+     * Block until any pending [applyParametricResponse] worker job runs.
+     * Used in [start] so the band feed lands BEFORE `enabled = true`
+     * (Wavelet ordering). No-op when nothing is queued.
      */
     private fun drainPendingApply() {
         val job = pendingApply ?: return
-        // Remove from queue, run synchronously on the caller's thread.
-        // Safe because the binder calls inside are thread-agnostic;
-        // only ordering matters, not which thread issues them.
+        // Dequeue and run synchronously — binder calls are thread-agnostic;
+        // only ordering matters.
         workerHandler.removeCallbacks(job)
         try { job.run() } catch (_: Exception) {}
     }
@@ -293,15 +280,13 @@ class DynamicsProcessingManager {
         }, 100)
     }
 
-    /** Force a clean recreate of the live DP on the *current* output
-     *  device using the last-applied EQ. Used on output route changes
-     *  (BT ↔ speaker etc.) to dodge OEM output-effect conflicts that
-     *  otherwise leave the new route muted until DP is re-toggled —
-     *  e.g. Pixel Adaptive Sound on Android 14. Equivalent to a manual
-     *  power off/on but preserves the current bands. No-op (returns
-     *  false) when DP isn't active or has no remembered EQ. Caller is
-     *  responsible for re-applying MBC per-band params / bypass after,
-     *  same as any other start(). */
+    /** Clean recreate of the live DP on the current output with the
+     *  last-applied EQ. Used on route changes (BT ↔ speaker etc.) to dodge
+     *  OEM output-effect conflicts that leave the new route muted until DP
+     *  is re-toggled — e.g. Pixel Adaptive Sound on Android 14. Power
+     *  off/on equivalent, bands preserved. Returns false when DP inactive
+     *  or no remembered EQ. Caller re-applies MBC params / bypass after,
+     *  same as any start(). */
     fun reattachActive(): Boolean {
         if (!isActive) return false
         val eq = lastEq ?: return false
@@ -310,13 +295,12 @@ class DynamicsProcessingManager {
         return isActive
     }
 
-    /** True when the EQ is supposed to be live but our session-0 effect has
-     *  silently lost control or been disabled by another app / the OEM
-     *  audio policy (the "EQ goes flat after switching apps" case that the
-     *  OnControl/OnEnable listeners often miss on aggressive ROMs). Safe to
-     *  call from any thread: returns false when DP isn't active, and any
-     *  native read on a torn-down handle is caught and treated as "lost"
-     *  (so the caller does a clean reattach). */
+    /** True when the EQ should be live but the session-0 effect silently
+     *  lost control / got disabled by another app or OEM audio policy —
+     *  the "EQ goes flat after switching apps" case the OnControl/OnEnable
+     *  listeners miss on aggressive ROMs. Any-thread safe: false when DP
+     *  inactive; a native read on a torn-down handle is treated as "lost"
+     *  so the caller reattaches cleanly. */
     fun hasLostControl(): Boolean {
         if (!isActive) return false
         val dp = dynamicsProcessing ?: return false
@@ -374,19 +358,16 @@ class DynamicsProcessingManager {
         leftEq: ParametricEqualizer,
         rightEq: ParametricEqualizer,
     ) {
-        // Cheap math (response sampling) on the caller's thread since it
-        // touches the live ParametricEqualizer owned by the UI thread.
-        // The expensive part — binder transactions into AudioFlinger —
-        // is dispatched to the worker thread.
+        // Response sampling (cheap) stays on the caller's thread — it touches
+        // the UI-owned ParametricEqualizer; the binder transactions into
+        // AudioFlinger go to the worker thread.
         //
-        // Single conversion path for every UI mode: feature-aware
-        // sampling places anchor cutoffs at every filter's centre
-        // frequency + per-filter-type support points around each, then
-        // fills remaining slots from Wavelet's 127-band table. The gain
-        // at each cutoff is `eq.getFrequencyResponse(f)` — the same
-        // biquad-summed value the on-screen graph draws. This way the
-        // audio always agrees with the graph, regardless of whether the
-        // user is editing in parametric / graphic / table / simple mode.
+        // Single conversion path for every UI mode: feature-aware sampling
+        // anchors cutoffs at each filter's centre frequency + per-filter-type
+        // support points, fills remaining slots from Wavelet's 127-band
+        // table. Gain at each cutoff = eq.getFrequencyResponse(f) — the same
+        // biquad-summed value the graph draws, so audio always agrees with
+        // the graph in parametric / graphic / table / simple mode.
         val useInterleave = currentInterleave
         val cutoffs: FloatArray
         val leftGains: FloatArray
@@ -449,11 +430,10 @@ class DynamicsProcessingManager {
             lastAutoGainOffset = 0f
         }
 
-        // Channel offsets and preamp are per-channel flat shifts —
-        // they belong on DP's input-gain stage, NOT baked into band
-        // gains. Wavelet's a6/b0.smali pattern: setInputGainbyChannel
-        // (0, leftSum) and (1, rightSum). Keeps band gains as pure EQ
-        // shape so DP's headroom logic doesn't compete with balance.
+        // Channel offsets + preamp are flat shifts on DP's input-gain stage,
+        // NOT baked into band gains (Wavelet a6/b0.smali:
+        // setInputGainbyChannel(0, leftSum) / (1, rightSum)) — band gains
+        // stay pure EQ shape so DP headroom logic doesn't fight balance.
         val (leftOffsetDb, rightOffsetDb) = computeChannelOffsets()
 
         Log.d(TAG, "[DUMP] preamp=${"%.2f".format(preampGainDb)} dB, " +
@@ -489,34 +469,29 @@ class DynamicsProcessingManager {
 
         val n = ParametricToDpConverter.numBands
         val cutoffsSnap = cutoffs
-        // Input gain composition: preamp + per-channel offset.
-        // Auto-gain is already baked into band gains above (it's a
-        // shape-preserving shift), so don't double-add it here.
+        // Input gain = preamp + per-channel offset. Auto-gain is already
+        // baked into band gains above — don't double-add.
         val leftInputGainDb = preampGainDb + leftOffsetDb
         val rightInputGainDb = preampGainDb + rightOffsetDb
         val job = Runnable {
             try {
-                // Wavelet calls dp.hasControl() before applying any
-                // settings (a6/n0.smali). If another app stole control
-                // of session 0, all setters silently no-op without it.
-                // Skip the apply — reclaimSession() will recreate when
-                // control is regained.
+                // Wavelet calls dp.hasControl() before applying settings
+                // (a6/n0.smali) — without control all setters silently no-op.
+                // Skip; reclaimSession() recreates when control returns.
                 if (!dp.hasControl()) {
                     Log.w(TAG, "DP lost control — skipping band write")
                     return@Runnable
                 }
-                // Push preamp + per-channel offset via DP's input-gain
-                // stage. Wavelet uses different values per channel
-                // (a6/b0.smali:343,379).
+                // Preamp + offset via input-gain stage; Wavelet uses
+                // per-channel values (a6/b0.smali:343,379).
                 try {
                     dp.setInputGainbyChannel(0, leftInputGainDb)
                     dp.setInputGainbyChannel(1, rightInputGainDb)
                 } catch (e: Throwable) {
                     Log.w(TAG, "setInputGainbyChannel failed", e)
                 }
-                // Atomic per-channel EQ swap. One Eq object per channel
-                // → one binder transaction per channel. Audio engine
-                // never observes partial state during the update.
+                // Atomic per-channel EQ swap: one Eq object → one binder
+                // transaction per channel; engine never sees partial state.
                 val leftEqObj = DynamicsProcessing.Eq(true, true, n)
                 val rightEqObj = DynamicsProcessing.Eq(true, true, n)
                 for (i in 0 until n) {
@@ -549,14 +524,10 @@ class DynamicsProcessingManager {
     }
 
     /**
-     * Compute the flat dB offset to apply to each channel via the
-     * input-gain stage, combining per-channel preamp gain with balance
-     * attenuation.
-     *
-     * Balance semantics: the side being panned TOWARD stays at 0 dB
-     * relative to preamp; the opposite side is attenuated. Pan wins
-     * over preamp, so a fully-left pan mutes the right channel
-     * regardless of right preamp.
+     * Per-channel flat dB offset for the input-gain stage: per-channel
+     * preamp + balance attenuation. Balance: the side panned TOWARD stays
+     * at 0 dB relative to preamp, the other side is attenuated; pan wins
+     * over preamp (full-left pan mutes right regardless of right preamp).
      */
     private fun computeChannelOffsets(): Pair<Float, Float> {
         val pct = channelBalancePercent.coerceIn(-100, 100)
@@ -663,11 +634,10 @@ class DynamicsProcessingManager {
         dynamicsProcessing?.enabled = enabled
     }
 
-    /** Apply the current limiter fields to the live DP instance without
-     *  rebuilding it. Dispatched to the worker thread so a slider drag
-     *  doesn't stall the UI thread on a binder transaction. Coalesced with
-     *  the band-write job so back-to-back slider ticks collapse to one
-     *  write. Falls back silently when DP isn't running. */
+    /** Apply current limiter fields to the live DP without rebuild.
+     *  Worker-thread dispatched (slider drags don't stall UI on binder) and
+     *  coalesced so back-to-back ticks collapse to one write. Silent no-op
+     *  when DP isn't running. */
     fun pushLimiterUpdate() {
         val dp = dynamicsProcessing ?: return
         val limiter = DynamicsProcessing.Limiter(

@@ -10,13 +10,10 @@ import com.bearinmind.equalizer314.R
 import org.json.JSONObject
 
 /**
- * Adapter used by every preset dropdown on the Audio Output screen.
- * Each row shows the preset name on the left and a small EQ-curve
- * preview ([PresetCurveView]) on the right. Sentinel rows like
- * `"(none)"` and `"<name> (missing)"` render with the empty grid.
- *
- * Extends [ArrayAdapter] so filtering inside
- * `MaterialAutoCompleteTextView` keeps working out of the box.
+ * Adapter for every preset dropdown on the Audio Output screen: name left,
+ * [PresetCurveView] preview right; sentinel rows ("(none)", "<name> (missing)")
+ * render the empty grid. Extends [ArrayAdapter] so MaterialAutoCompleteTextView
+ * filtering keeps working.
  */
 class PresetDropdownAdapter(
     context: Context,
@@ -28,12 +25,11 @@ class PresetDropdownAdapter(
     entries.map { it.displayName },
 ) {
 
-    /** One row of the dropdown.
-     *  @param displayName what shows in the row's name TextView
-     *  @param presetJson  full preset JSON used to render the curve
-     *                     (includes `channelSideEqEnabled` etc. so CSE
-     *                     presets stack L/R); null for `"(none)"` /
-     *                     missing-preset rows. */
+    /** One dropdown row.
+     *  @param displayName row name text
+     *  @param presetJson  full preset JSON for the curve (includes
+     *                     `channelSideEqEnabled` so CSE presets stack L/R);
+     *                     null for sentinel rows. */
     data class Entry(
         val displayName: String,
         val presetJson: JSONObject?,
@@ -60,9 +56,8 @@ class PresetDropdownAdapter(
         nameView.text = entry.displayName
 
         if (entry.isDisable) {
-            // "Disable EQ": red name, "N/A" in place of the curve, no
-            // preamp line. (Rows are recycled, so the non-disable branch
-            // below must restore the defaults.)
+            // "Disable EQ": red name, "N/A" instead of curve, no preamp line.
+            // Rows are recycled — the non-disable branch must restore defaults.
             nameView.setTextColor(0xFFEF9A9A.toInt())
             curve.visibility = View.GONE
             naView.visibility = View.VISIBLE
@@ -80,10 +75,8 @@ class PresetDropdownAdapter(
         naView.visibility = View.GONE
         curve.visibility = View.VISIBLE
         curve.setPreset(entry.presetJson)
-        // Preamp subtitle — visible only for real presets that carry
-        // EQ data. Sentinel rows like "(none)" and "<name> (missing)"
-        // have no JSON, so we hide the line entirely instead of
-        // misleadingly showing "0.0 dB" under them.
+        // Preamp subtitle only for real presets; sentinel rows have no JSON —
+        // hide the line rather than misleadingly show "0.0 dB".
         val json = entry.presetJson
         if (json == null) {
             preampView.visibility = View.GONE

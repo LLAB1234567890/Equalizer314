@@ -30,11 +30,9 @@ class MaxHeightScrollView @JvmOverloads constructor(
         }
     }
 
-    // This view lives inside the page's outer ScrollView, and its rows are full
-    // of clickable band buttons. A drag that STARTS on a button means our
-    // onTouchEvent never sees the DOWN, so claim the gesture here — this runs
-    // before children get the touch. On DOWN, if we have something to scroll,
-    // tell ancestors not to intercept so only these rows scroll.
+    // Lives inside the page's outer ScrollView; rows are full of clickable band buttons. A drag that
+    // STARTS on a button means our onTouchEvent never sees the DOWN, so claim the gesture here (runs
+    // before children): on DOWN, if scrollable, tell ancestors not to intercept so only these rows scroll.
     override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
         if (ev.actionMasked == MotionEvent.ACTION_DOWN &&
             (canScrollVertically(-1) || canScrollVertically(1))) {

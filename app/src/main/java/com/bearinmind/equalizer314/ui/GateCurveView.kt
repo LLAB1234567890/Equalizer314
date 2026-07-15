@@ -138,9 +138,7 @@ class GateCurveView @JvmOverloads constructor(
         // Unity diagonal
         canvas.drawLine(dbToX(minDb), dbToY(minDb), dbToX(maxDb), dbToY(maxDb), diagonalPaint)
 
-        // Gate curve — draw as two straight segments for perfect corners
-        // Segment 1: expander line from minDb to gateThreshold
-        // Segment 2: 1:1 diagonal from gateThreshold to maxDb
+        // Gate curve as two straight segments (perfect corners): expander line minDb→gateThreshold, then 1:1 diagonal gateThreshold→maxDb
         val curvePath = Path()
         val gtClamped = gateThreshold.coerceIn(minDb, maxDb)
 

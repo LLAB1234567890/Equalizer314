@@ -10,30 +10,22 @@ import androidx.annotation.RequiresApi
 import com.bearinmind.equalizer314.R
 
 /**
- * Quick Settings tile that toggles the global DynamicsProcessing on /
- * off without opening MainActivity. Mirrors the power FAB's behaviour:
- *
- *   - When EQ is off → tile reads "EQ314 OFF" (inactive, dim icon).
- *     Tapping fires [EqService.ACTION_START_FROM_TILE], which loads
- *     persisted bands from `eq_settings` SP and starts the global DP.
- *   - When EQ is on → tile reads "EQ314 ON" (active, lit icon).
- *     Tapping fires [EqService.ACTION_STOP], which tears down the DP,
- *     releases per-session effects, and stops the foreground service.
- *
- * The tile updates optimistically on click so the user sees the label
- * flip instantly; the next [onStartListening] re-syncs against the
- * persisted power-state pref in case the service start failed silently
- * (e.g. no saved bands on a fresh install).
+ * Quick Settings tile toggling global DynamicsProcessing without opening MainActivity. Mirrors the
+ * power FAB:
+ *   - EQ off → "EQ314 OFF" (inactive). Tap fires [EqService.ACTION_START_FROM_TILE], loading
+ *     persisted bands from `eq_settings` SP and starting the global DP.
+ *   - EQ on → "EQ314 ON" (active). Tap fires [EqService.ACTION_STOP], tearing down the DP, releasing
+ *     per-session effects, stopping the foreground service.
+ * Updates optimistically on click for instant feedback; next [onStartListening] re-syncs against the
+ * persisted power-state pref in case the service start failed silently (e.g. no saved bands, fresh install).
  */
 @RequiresApi(Build.VERSION_CODES.N)
 class Eq314TileService : TileService() {
 
     override fun onStartListening() {
         super.onStartListening()
-        // Read the live in-process flag — the persisted pref drifts
-        // (MainActivity intentionally resets it to false on every
-        // cold launch). EqService.isDpRunning is the authoritative
-        // source for whether the global DP is actually processing.
+        // Use the live in-process flag: the persisted pref drifts (MainActivity resets it to false on
+        // every cold launch). EqService.isDpRunning is authoritative for whether the global DP is processing.
         val on = EqService.isDpRunning
         Log.d(TAG, "onStartListening — isDpRunning=$on")
         renderState(isOn = on)
@@ -41,10 +33,8 @@ class Eq314TileService : TileService() {
 
     override fun onClick() {
         super.onClick()
-        // ACTION_START_FROM_TILE is now a true toggle on the service
-        // side — it interprets isDpRunning live and either starts the
-        // DP from persisted bands or tears down whatever's running.
-        // We just fire the intent and update the tile optimistically.
+        // ACTION_START_FROM_TILE is a true toggle service-side: interprets isDpRunning live and either
+        // starts the DP from persisted bands or tears down what's running. We fire and update optimistically.
         val turningOn = !EqService.isDpRunning
         Log.d(TAG, "onClick — turningOn=$turningOn (isDpRunning=${EqService.isDpRunning})")
         val intent = Intent(this, EqService::class.java)
@@ -57,9 +47,8 @@ class Eq314TileService : TileService() {
             }
             Log.d(TAG, "onClick — dispatched ${intent.action}")
         } catch (t: Throwable) {
-            // Foreground-service-from-tile is allowed on every API
-            // we target, but if a future restriction fires we just
-            // skip — onStartListening will re-sync the tile next open.
+            // FGS-from-tile is allowed on every API we target; if a future restriction fires, skip —
+            // onStartListening re-syncs the tile next open.
             Log.w(TAG, "onClick — startService failed", t)
             return
         }

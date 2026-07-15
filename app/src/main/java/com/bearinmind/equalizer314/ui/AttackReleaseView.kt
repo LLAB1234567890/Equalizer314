@@ -121,9 +121,7 @@ class AttackReleaseView @JvmOverloads constructor(
         val aDotX = aSlopeAtDotY.coerceAtMost(peakX - minOffset)
         val rDotX = rSlopeAtDotY.coerceAtLeast(peakX + minOffset)
 
-        // Envelope curves — exponential shape matching real compressor behavior
-        // Attack: 1 - e^(-t/τ) — steep rise at start, leveling off at peak
-        // Release: e^(-t/τ) — steep drop from peak, leveling off at bottom
+        // Envelope curves, exp shape (real compressor behavior): Attack 1 - e^(-t/τ) steep rise leveling at peak; Release e^(-t/τ) steep drop leveling at bottom
         val triPath = Path()
 
         // Attack side start point
@@ -284,9 +282,8 @@ class AttackReleaseView @JvmOverloads constructor(
     }
 
     /**
-     * Draw an exponential curve segment from (startX,startY) to (endX,endY).
-     * Uses 1 - e^(-t*k) shape: steep at start, leveling off at end.
-     * This matches real compressor envelope follower behavior (first-order IIR).
+     * Exponential curve segment (startX,startY)→(endX,endY), 1 - e^(-t*k) shape:
+     * steep at start, leveling off at end. Matches first-order IIR compressor envelope follower.
      */
     private fun addExpCurve(path: Path, startX: Float, startY: Float, endX: Float, endY: Float) {
         val k = 4.0

@@ -4,44 +4,22 @@ import kotlin.math.log10
 import kotlin.math.sqrt
 
 /**
- * LUFS = Loudness Units relative to Full Scale
+ * K-weighted LUFS (Loudness Units relative to Full Scale) Momentary loudness processor.
+ * Implements ITU-R BS.1770-4 K-weighting + 400ms sliding window RMS. LUFS is the standard for
+ * perceived loudness (Spotify -14, YouTube -13, Apple Music -16; broadcast EBU R128).
  *
- * K-weighted LUFS Momentary loudness processor.
- * Implements ITU-R BS.1770-4 K-weighting + 400ms sliding window RMS.
- *
- * LUFS is the international standard for measuring perceived loudness.
- * Used by streaming platforms (Spotify: -14 LUFS, YouTube: -13, Apple Music: -16)
- * and broadcast standard EBU R128.
- *
- * K-weighting = two cascaded biquad filters:
+ * K-weighting = two cascaded biquads:
  * 1. Pre-filter (high shelf): +4 dB above ~1.5 kHz — models head/ear canal resonance
  * 2. RLB filter (highpass): rolls off below ~100 Hz — de-emphasizes bass (ears less sensitive)
+ * Then RMS over a 400ms sliding window → LUFS = -0.691 + 10 * log10(meanSquare).
  *
- * Then: RMS over a 400ms sliding window → LUFS = -0.691 + 10 * log10(meanSquare)
- *
- * Coefficients for 48 kHz sample rate from ITU-R BS.1770-4.
- * For other sample rates, coefficients must be recalculated.
- *
- * Documentation & references used:
- * - ITU-R BS.1770-4 (the actual standard defining K-weighting and LUFS measurement)
- * - pyloudnorm (github.com/csteinmetz1/pyloudnorm) — MIT, Python reference implementation
- *   Source of the exact biquad coefficients used here
- * - libebur128 (github.com/jiixyj/libebur128) — MIT, C implementation of EBU R128
- *   Cross-referenced filter coefficients and sliding window approach
- * - FabFilter Pro-L 2 documentation — confirmed LUFS Momentary (400ms) for loudness line
- *
- * Pre-filter coefficients (48 kHz):
- *   b0=1.53512485958697, b1=-2.69169618940638, b2=1.19839281085285
- *   a1=-1.69065929318241, a2=0.73248077421585
- *
- * RLB highpass coefficients (48 kHz):
- *   b0=1.0, b1=-2.0, b2=1.0
- *   a1=-1.99004745483398, a2=0.99007225036621
+ * Coefficients below are for 48 kHz (from ITU-R BS.1770-4); other sample rates must recalculate.
+ * Coefficient source: pyloudnorm (MIT); cross-referenced against libebur128 (MIT, EBU R128).
+ * FabFilter Pro-L 2 confirmed Momentary (400ms) for the loudness line.
  */
 class LufsProcessor(private val sampleRate: Int = 48000) {
 
-    // ── Pre-filter (high shelf) biquad coefficients ──
-    // ITU-R BS.1770-4 coefficients for 48 kHz
+    // ── Pre-filter (high shelf) biquad coefficients — ITU-R BS.1770-4, 48 kHz ──
     private val preB0 = 1.53512485958697
     private val preB1 = -2.69169618940638
     private val preB2 = 1.19839281085285
@@ -68,8 +46,7 @@ class LufsProcessor(private val sampleRate: Int = 48000) {
     private var rlbY2 = 0.0
 
     // ── 400ms sliding window for Momentary LUFS ──
-    // At ~20 captures/sec from Visualizer, 400ms ≈ 8 captures
-    // But we compute per-capture RMS and smooth, so we use a ring buffer of squared values
+    // Ring buffer of per-capture squared (mean-square) values. ~20 captures/sec ⇒ 400ms ≈ 8 captures.
     private val windowSize = 12  // ~400ms at 30fps timer
     private val windowBuffer = FloatArray(windowSize)
     private var windowIdx = 0

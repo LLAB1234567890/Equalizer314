@@ -240,11 +240,9 @@ class GrTraceView @JvmOverloads constructor(
                 canvas.drawPath(gateStrokePath, gateStrokePaint)
             }
 
-            // ── GR TRACE (from top, on unified dB scale) ──
-            // GR shows as: the trace sits at 0 dB (top) and dips by |GR| amount
-            // But it NEVER goes below the threshold line
-            // When input < threshold: GR = 0, trace stays at top
-            // When input > threshold: GR is negative, trace dips from top by |GR| dB
+            // ── GR TRACE (from top, unified dB scale) ──
+            // Trace sits at 0 dB and dips by |GR| when input > threshold;
+            // never goes below the threshold line.
             val grTracePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 this.color = color
                 strokeWidth = if (isSelected) 3f else 2f
@@ -261,10 +259,7 @@ class GrTraceView @JvmOverloads constructor(
             for (s in 0 until samplesVisible) {
                 val bufIdx = ringIdx(s, samplesVisible)
                 val gr = grHistory[b][bufIdx]  // always <= 0
-                // GR trace Y: starts at 0 dB (top), dips by |gr| dB
-                // On the unified scale: y = dbToY(gr, h)
-                // But gr is 0 to -60, and dbToY(0) = top, dbToY(-60) = bottom
-                // So the GR trace naturally maps: 0 GR = top, -20 GR = 1/3 down
+                // dbToY maps 0 → top, -60 → bottom, so the trace dips by |gr| dB.
                 val y = dbToY(gr, h)
                 val x = leftX + s * pxPerSample
                 if (!grStarted) {

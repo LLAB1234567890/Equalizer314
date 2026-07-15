@@ -38,10 +38,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * Detail screen of the "Audio Output" pipeline card. Single self-
- * contained surface for the per-device EQ binding feature: lists the
- * currently routed output, lists every device the app has seen, and
- * lets the user assign saved presets to each.
+ * Detail screen of the "Audio Output" pipeline card — per-device EQ binding: shows the currently
+ * routed output, every device the app has seen, and lets the user assign saved presets to each.
  */
 class AudioOutputActivity : AppCompatActivity() {
 
@@ -62,9 +60,8 @@ class AudioOutputActivity : AppCompatActivity() {
     private lateinit var currentDeviceDropdown: MaterialAutoCompleteTextView
     private lateinit var currentDeviceDropdownLayout: TextInputLayout
     private var devicesExpanded = true
-    // Suppresses the click-handler's reopen when a popup auto-dismisses
-    // via outside-tap on the dropdown box itself — the same touch that
-    // dismisses also fires our click handler and would re-open the popup.
+    // Suppresses the click-handler's reopen when a popup auto-dismisses via outside-tap on the
+    // dropdown box — the same touch that dismisses also fires our click handler.
     private var currentDeviceLastDismissAt = 0L
 
     private var eqService: EqService? = null
@@ -108,10 +105,8 @@ class AudioOutputActivity : AppCompatActivity() {
 
         findViewById<ImageButton>(R.id.audioOutputBackButton).setOnClickListener { finish() }
 
-        // Device auto-switch toggle — twin of Channel Input's Session
-        // detection card. Tapping the switch flips the persisted flag
-        // synchronously so the next route change either applies the
-        // bound preset (on) or is treated as a no-op (off).
+        // Device auto-switch toggle — twin of Channel Input's Session detection card. Flips the
+        // persisted flag synchronously so the next route change applies the bound preset (on) or no-ops (off).
         deviceAutoSwitchCard = findViewById(R.id.deviceAutoSwitchCard)
         deviceAutoSwitchSwitch = findViewById(R.id.deviceAutoSwitchSwitch)
         deviceAutoSwitchBody = findViewById(R.id.deviceAutoSwitchBody)
@@ -159,16 +154,11 @@ class AudioOutputActivity : AppCompatActivity() {
                 if (actionState == ItemTouchHelper.ACTION_STATE_DRAG &&
                     viewHolder is DevicesAdapter.VH) {
                     val handle = viewHolder.handle
-                    // Hold the handle's pressed state during the drag
-                    // so the ripple stays lit. The press is post()'ed
-                    // because ItemTouchHelper fires this callback
-                    // BEFORE dispatching ACTION_CANCEL to the handle
-                    // View — without posting, the cancel would
-                    // re-set isPressed=false immediately after.
+                    // Hold the handle's pressed state so the ripple stays lit during the drag;
+                    // post()'ed because ItemTouchHelper fires this callback BEFORE dispatching
+                    // ACTION_CANCEL to the handle, which would reset isPressed=false right after.
                     handle.post { handle.isPressed = true }
-                    // Make the card opaque while it's being dragged so
-                    // it visually covers rows underneath it instead of
-                    // showing them through the transparent fill.
+                    // Opaque card while dragging so it covers rows underneath (vs transparent fill)
                     val surfaceColor = MaterialColors.getColor(
                         viewHolder.itemView,
                         com.google.android.material.R.attr.colorSurface,
@@ -182,8 +172,7 @@ class AudioOutputActivity : AppCompatActivity() {
                 if (viewHolder is DevicesAdapter.VH) {
                     // Drag ended — release the press state so the ripple fades.
                     viewHolder.handle.isPressed = false
-                    // Restore the transparent fill so the row blends
-                    // back into the page once dropped.
+                    // Restore the transparent fill so the row blends back into the page
                     viewHolder.card.setCardBackgroundColor(android.graphics.Color.TRANSPARENT)
                 }
                 // Persist on drag end so the order survives across launches.
@@ -196,16 +185,13 @@ class AudioOutputActivity : AppCompatActivity() {
         devicesChevron = findViewById(R.id.devicesChevron)
         currentDeviceDropdownLayout = findViewById(R.id.currentDevicePresetLayout)
         currentDeviceDropdown = findViewById(R.id.currentDevicePresetDropdown)
-        // Touches are intercepted by the TextInputLayout (which holds the
-        // ripple foreground); forward them to opening the popup so the
-        // dropdown still toggles when the user taps the box.
+        // TextInputLayout (holder of the ripple foreground) intercepts touches; forward them to
+        // popup open/dismiss so the dropdown still toggles on box tap.
         currentDeviceDropdown.setOnDismissListener {
             currentDeviceLastDismissAt = System.currentTimeMillis()
         }
         currentDeviceDropdownLayout.setOnClickListener {
-            // If the popup was just dismissed (within ~300ms) by an
-            // outside-tap on this box, that same touch also fired this
-            // click — don't reopen.
+            // A popup dismissed <300ms ago by an outside-tap on this box also fired this click — don't reopen
             if (System.currentTimeMillis() - currentDeviceLastDismissAt < 300) {
                 currentDeviceLastDismissAt = 0L
                 return@setOnClickListener
@@ -232,28 +218,19 @@ class AudioOutputActivity : AppCompatActivity() {
 
     override fun onStart() {
         super.onStart()
-        // Sync the auto-switch card every time the screen surfaces —
-        // the user could have flipped the flag elsewhere (debug, ADB,
-        // future linked settings) and we don't want a stale toggle.
+        // Sync the auto-switch card on every surface — the flag could have flipped elsewhere (debug, ADB, linked settings)
         refreshDeviceAutoSwitchUi()
-        // Bind to EqService — the same pattern MainActivity uses — so we
-        // can read the live routing monitor and react to changes.
+        // Bind to EqService (same pattern as MainActivity) to read the live routing monitor
         bindService(Intent(this, EqService::class.java), serviceConnection, Context.BIND_AUTO_CREATE)
-        // Standalone scan: when the EQ service isn't running (user
-        // hasn't pressed power yet), the routing monitor isn't alive
-        // either, so nothing has been remembered. Enumerate output
-        // sinks ourselves so the list still populates with whatever's
-        // currently connected.
+        // Standalone scan: with the EQ service off the routing monitor isn't alive and nothing has
+        // been remembered — enumerate output sinks ourselves so the list still populates.
         scanCurrentlyConnectedOutputs()
         refreshDevices()
     }
 
-    /** Pushes the persisted auto-switch state into the toggle card.
-     *  Body copy is fixed (matches the Session-detection card pattern
-     *  on the Channel Input screen — single line, no state branching);
-     *  the switch position alone communicates on / off. The toggle
-     *  gates [com.bearinmind.equalizer314.audio.RouteSwitchCoordinator]
-     *  — when off, route changes are tracked but no preset is applied. */
+    /** Push the persisted auto-switch state into the toggle card. Body copy is fixed (matches the
+     *  Channel Input Session-detection card); the switch position alone communicates on/off. Gates
+     *  [com.bearinmind.equalizer314.audio.RouteSwitchCoordinator] — off = route changes tracked but no preset applied. */
     private fun refreshDeviceAutoSwitchUi() {
         deviceAutoSwitchSwitch.isChecked = eqPrefs.getDeviceAutoSwitchEnabled()
     }
@@ -267,10 +244,8 @@ class AudioOutputActivity : AppCompatActivity() {
         }
     }
 
-    /** Pick the highest-priority connected output by querying
-     *  AudioManager directly. Used as a fallback when the service's
-     *  AudioRoutingMonitor isn't running or its dedupe means it
-     *  never emitted for the current device. */
+    /** Pick the highest-priority connected output via AudioManager directly — fallback when the
+     *  service's AudioRoutingMonitor isn't running or its dedupe never emitted for the current device. */
     private fun pickActiveOutputDirect(): android.media.AudioDeviceInfo? {
         val am = getSystemService(android.media.AudioManager::class.java) ?: return null
         var best: android.media.AudioDeviceInfo? = null
@@ -305,12 +280,9 @@ class AudioOutputActivity : AppCompatActivity() {
 
     private fun refreshActiveDevice() {
         val monitor = eqService?.routingMonitor
-        // Prefer the service's monitor (it has live add/remove
-        // callbacks) but fall back to a direct AudioManager scan so
-        // the Current Device card still shows something when the EQ
-        // service isn't running (Power button off) or when the
-        // monitor's stale-key dedupe means it never emitted for the
-        // current output (e.g. USB was connected before service start).
+        // Prefer the service's monitor (live add/remove callbacks) with a direct AudioManager scan
+        // fallback so the card still shows something when the EQ service is off, or when the
+        // monitor's stale-key dedupe never emitted for the current output (e.g. USB connected before service start).
         val active = monitor?.pickActiveOutput() ?: pickActiveOutputDirect()
         if (active == null) {
             activeKey = null
@@ -324,11 +296,8 @@ class AudioOutputActivity : AppCompatActivity() {
         activeKey = DeviceIdentity.keyOf(active)
         activeLabel = DeviceIdentity.labelOf(active)
         activeDeviceLabel.text = activeLabel ?: "Current output"
-        // Device key stacked on a second line below the label —
-        // routed through DeviceIdentity.displayKey so USB / wired /
-        // speaker show "USB" / "Wired" / "Speaker" rather than
-        // duplicating the product name from the first line, while
-        // Bluetooth still shows the MAC.
+        // Device key on a second line via DeviceIdentity.displayKey: USB/wired/speaker show
+        // "USB"/"Wired"/"Speaker" instead of duplicating the product name; Bluetooth still shows the MAC.
         val keyDisplay = activeKey?.let { DeviceIdentity.displayKey(it) }.orEmpty()
         if (keyDisplay.isNotEmpty()) {
             activeDeviceKey.text = keyDisplay
@@ -339,10 +308,8 @@ class AudioOutputActivity : AppCompatActivity() {
         }
         val binding = activeKey?.let { eqPrefs.getDeviceBinding(it) }
 
-        // Mirror of the per-row dropdown in the Devices list, but bound
-        // to the active device. Picking here writes the same binding
-        // entry the row dropdown would; both are kept in sync via
-        // refreshActiveDevice + refreshDevices.
+        // Mirror of the per-row dropdown, bound to the active device — writes the same binding
+        // entry; both stay in sync via refreshActiveDevice + refreshDevices.
         val key = activeKey
         currentDeviceDropdownLayout.visibility = View.VISIBLE
         if (key == null) {
@@ -384,26 +351,19 @@ class AudioOutputActivity : AppCompatActivity() {
                 }
                 else -> {
                     eqPrefs.saveDeviceBinding(EqPreferencesManager.Binding(key, label, pick))
-                    // This dropdown only edits the active device, so the
-                    // pick IS now the preset driving audio (or about to,
-                    // when DP starts). Write the preset name pref
-                    // directly here in addition to the broadcast — the
-                    // broadcast path runs RouteSwitchCoordinator which
-                    // also calls savePresetName, but only when
-                    // auto-switch is enabled. Writing directly here
-                    // makes the chip/notification reflect the user's
-                    // explicit binding action regardless of the
-                    // auto-switch toggle's state.
+                    // This dropdown edits the active device, so the pick IS the preset driving
+                    // audio. Write the preset name pref directly in addition to the broadcast —
+                    // the broadcast's RouteSwitchCoordinator calls savePresetName only when
+                    // auto-switch is on; direct write makes the chip/notification reflect the
+                    // explicit binding regardless of the toggle.
                     eqPrefs.savePresetName(pick)
                     notifyBindingChanged()
                     Toast.makeText(this, "Bound \"$pick\" to $label", Toast.LENGTH_SHORT).show()
                 }
             }
-            // Drop focus so the TextInputLayout returns to its idle
-            // outline color instead of staying highlighted in primary.
+            // Drop focus so the TextInputLayout returns to its idle outline color
             currentDeviceDropdown.clearFocus()
-            // Keep both views in sync — the active device also shows up
-            // as a row in the Devices list.
+            // Keep both views in sync — the active device is also a row in the Devices list
             refreshActiveDevice()
             refreshDevices()
         }
@@ -413,16 +373,14 @@ class AudioOutputActivity : AppCompatActivity() {
 
     private fun refreshDevices() {
         val seen = eqPrefs.getAllSeenDevices().toMutableList()
-        // Make sure the currently active device is in the list even if
-        // it was never explicitly remembered (e.g. first launch).
+        // Ensure the active device is listed even if never explicitly remembered (e.g. first launch)
         val activeKey = this.activeKey
         val activeLabel = this.activeLabel
         if (activeKey != null && activeLabel != null && seen.none { it.first == activeKey }) {
             seen.add(0, activeKey to activeLabel)
         }
-        // Apply user-saved drag order if present. Devices not yet in
-        // the saved order are appended in their natural (insertion)
-        // order, with the active device pinned first.
+        // Apply user-saved drag order; devices not in it append in natural (insertion) order,
+        // active device pinned first.
         val savedOrder = eqPrefs.getDevicesOrder()
         val byKey = seen.associateBy { it.first }
         val ordered = mutableListOf<Pair<String, String>>()
@@ -439,11 +397,9 @@ class AudioOutputActivity : AppCompatActivity() {
     }
 
     /**
-     * RecyclerView adapter for the Devices list. Each row is the
-     * `item_device_row.xml` layout (drag handle on the left + outlined
-     * card on the right). The handle's `setOnTouchListener` starts an
-     * [ItemTouchHelper] drag, which produces `onMove` / `clearView`
-     * callbacks back in the activity to reorder + persist the list.
+     * Devices-list adapter. Each row is `item_device_row.xml` (drag handle left, outlined card
+     * right); the handle's touch listener starts an [ItemTouchHelper] drag whose onMove/clearView
+     * callbacks reorder + persist the list.
      */
     private inner class DevicesAdapter : RecyclerView.Adapter<DevicesAdapter.VH>() {
 
@@ -489,11 +445,8 @@ class AudioOutputActivity : AppCompatActivity() {
         override fun onBindViewHolder(holder: VH, position: Int) {
             val (key, label) = items[position]
 
-            // Device name on top, key stacked on the line below. The
-            // second line is routed through DeviceIdentity.displayKey
-            // so USB / wired / speaker show "USB" / "Wired" / "Speaker"
-            // rather than duplicating the product name; Bluetooth
-            // still shows the MAC because it's the unique identifier.
+            // Name on top, key below via DeviceIdentity.displayKey: USB/wired/speaker show
+            // "USB"/"Wired"/"Speaker" (not the product name again); Bluetooth shows the MAC (unique identifier).
             val keyDisplay = DeviceIdentity.displayKey(key)
             holder.name.text = label
             if (keyDisplay.isNotEmpty()) {
@@ -522,11 +475,9 @@ class AudioOutputActivity : AppCompatActivity() {
             )
             dropdown.setAdapter(PresetDropdownAdapter(this@AudioOutputActivity, entries))
 
-            // The TextInputLayout owns the ripple foreground + touch
-            // handling; route its clicks into opening / dismissing the
-            // dropdown popup. The dismiss-listener + 300ms suppression
-            // avoids the reopen cycle when an outside-tap on the box
-            // both dismisses the popup AND fires this click.
+            // TextInputLayout owns the ripple foreground + touch handling; route clicks to popup
+            // open/dismiss. The dismiss-listener + 300ms suppression avoids the reopen cycle when
+            // an outside-tap both dismisses the popup AND fires this click.
             dropdown.setOnDismissListener {
                 holder.lastDismissAt = System.currentTimeMillis()
             }
@@ -559,10 +510,8 @@ class AudioOutputActivity : AppCompatActivity() {
                     }
                     else -> {
                         eqPrefs.saveDeviceBinding(EqPreferencesManager.Binding(key, label, pick))
-                        // If this row IS the currently-active device,
-                        // make the pick take effect on the preset name
-                        // pref immediately. Mirrors the top dropdown's
-                        // behaviour and bypasses RouteSwitchCoordinator's
+                        // If this row IS the active device, apply the pick to the preset name pref
+                        // immediately — mirrors the top dropdown, bypassing RouteSwitchCoordinator's
                         // auto-switch gate for explicit user actions.
                         if (key == activeKey) {
                             eqPrefs.savePresetName(pick)
@@ -591,19 +540,11 @@ class AudioOutputActivity : AppCompatActivity() {
                 true
             }
 
-            // Drag handle — touching it kicks off ItemTouchHelper's
-            // drag. The pressed-state lifecycle is driven manually so
-            // the ripple stays lit for the whole gesture:
-            //   DOWN → isPressed = true (ripple starts)
-            //   UP   → isPressed = false (tap-without-drag releases)
-            //   CANCEL → consume the event so View.onTouchEvent never
-            //     runs and never sets isPressed=false. ItemTouchHelper
-            //     dispatches a CANCEL to this view when it takes over
-            //     the touch stream for a drag — without consuming, the
-            //     framework's default cancel handler would kill the
-            //     ripple mid-drag. The drag's eventual end fires
-            //     clearView() in the ItemTouchHelper callback, which
-            //     releases isPressed there instead.
+            // Drag handle starts the ItemTouchHelper drag. Pressed-state is driven manually so the
+            // ripple stays lit for the whole gesture: DOWN → isPressed=true; UP → isPressed=false
+            // (tap-without-drag); CANCEL → consume so View.onTouchEvent never sets isPressed=false
+            // (ItemTouchHelper dispatches CANCEL when it takes over the touch stream — unconsumed,
+            // the framework's cancel handler kills the ripple mid-drag; clearView() releases isPressed instead).
             holder.handle.setOnTouchListener { v, event ->
                 when (event.actionMasked) {
                     android.view.MotionEvent.ACTION_DOWN -> {
@@ -625,18 +566,11 @@ class AudioOutputActivity : AppCompatActivity() {
     // ---- Helpers -------------------------------------------------------
 
     /**
-     * Builds a ripple foreground whose drawable bounds match the actual
-     * outlined-box rectangle, so the ripple stops at every outline edge
-     * instead of bleeding into the label area above or stopping short
-     * of it. Hard-coded inset values never lined up because the offset
-     * depends on the floated label's vertical centre, which varies
-     * with font scale.
-     *
-     * In OutlinedBox mode the box drawable is set as the inner
-     * AutoCompleteTextView's background — its bounds equal the
-     * AutoCompleteTextView's bounds. `offsetDescendantRectToMyCoords`
-     * translates those into the TextInputLayout's coordinate space,
-     * giving us the exact outline rect to inset the ripple to.
+     * Ripple foreground whose bounds match the actual outlined-box rect, so the ripple stops at
+     * every outline edge. Hard-coded insets never lined up — the offset depends on the floated
+     * label's vertical centre, which varies with font scale. In OutlinedBox mode the box drawable
+     * is the inner AutoCompleteTextView's background; `offsetDescendantRectToMyCoords` translates
+     * its bounds into TextInputLayout space, giving the exact outline rect to inset to.
      */
     private fun applyBoxOutlineRipple(layout: TextInputLayout, dropdown: android.view.View) {
         layout.viewTreeObserver.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {
@@ -660,23 +594,15 @@ class AudioOutputActivity : AppCompatActivity() {
                     this.cornerRadius = cornerRadius
                     setColor(android.graphics.Color.WHITE)
                 }
-                // Bump mask above the outline at the "Preset" label
-                // position. Combined with the outline mask via
-                // LayerDrawable, the ripple's clipping region becomes
-                // the union of the two — outline + a small rounded
-                // tab above it that follows the label.
-                //
-                // Position is computed from the floated label's actual
-                // measured width and Material3's known horizontal
-                // padding (16dp from outline.left for the EditText's
-                // text baseline, ~4dp cutout padding around the label
-                // text), so the bump always tracks the label even
-                // across font scales.
+                // Bump mask above the outline at the "Preset" label. LayerDrawable unions it with
+                // the outline mask — ripple clip = outline + a small rounded tab following the
+                // label. Position comes from the label's measured width plus Material3's known
+                // padding (16dp from outline.left to the text baseline, ~4dp cutout padding around
+                // the label), so the bump tracks the label across font scales.
                 val labelText = (layout.hint ?: "Preset").toString()
                 val labelTextSizePx = 12f * resources.displayMetrics.scaledDensity
-                // Use the same typeface + letter spacing the dropdown
-                // itself uses so the measurement tracks what Material's
-                // CollapsingTextHelper actually paints onscreen.
+                // Same typeface + letter spacing as the dropdown so the measurement tracks what
+                // Material's CollapsingTextHelper actually paints.
                 val labelMeasuredWidth = android.graphics.Paint().apply {
                     textSize = labelTextSizePx
                     typeface = (dropdown as? android.widget.TextView)?.typeface
@@ -688,12 +614,8 @@ class AudioOutputActivity : AppCompatActivity() {
                 val labelCutoutPaddingPx = (4 * density).toInt()
                 val labelHorizontalInsetPx = (16 * density).toInt()
                 val bumpHeightPx = (labelTextSizePx + 2 * 2 * density).toInt()
-                // Bump spans from cutout-left (the label text's left
-                // minus 4dp cutout padding) to cutout-right (label
-                // text's right + 4dp). That's the exact width of the
-                // outline cutout Material draws around the floated
-                // label, so the bump aligns with the end of the
-                // visible label text.
+                // Bump spans label-left − 4dp to label-right + 4dp — the exact width of the outline
+                // cutout Material draws around the floated label.
                 val labelTextLeft = rect.left + labelHorizontalInsetPx
                 val labelTextRight = labelTextLeft + labelMeasuredWidth.toInt()
                 val bumpLeft = labelTextLeft - labelCutoutPaddingPx
@@ -737,10 +659,8 @@ class AudioOutputActivity : AppCompatActivity() {
         })
     }
 
-    /** Tell EqService to re-run the route coordinator for the currently-
-     *  routed device. Called after any binding add/change/remove so the
-     *  new binding takes effect on live DP immediately, instead of
-     *  waiting for a disconnect/reconnect to trigger a route change. */
+    /** Re-run EqService's route coordinator for the currently-routed device — called after any
+     *  binding add/change/remove so it takes effect on live DP immediately (no disconnect/reconnect needed). */
     private fun notifyBindingChanged() {
         sendBroadcast(
             Intent(com.bearinmind.equalizer314.audio.EqService.ACTION_REAPPLY_DEVICE_BINDING)
@@ -750,10 +670,8 @@ class AudioOutputActivity : AppCompatActivity() {
 
     private fun listCustomPresetNames(): List<String> {
         val prefs = getSharedPreferences("custom_presets", MODE_PRIVATE)
-        // Only keys whose value is a String are real presets — MainActivity
-        // also stores a `preset_names` StringSet bookkeeping key in this
-        // same prefs file, which would otherwise be parsed as a preset
-        // called "names" and crash with ClassCastException on getString().
+        // Only String values are real presets — MainActivity also stores a `preset_names` StringSet
+        // bookkeeping key here, which would parse as a preset "names" and crash ClassCastException on getString().
         return prefs.all
             .filter { (k, v) -> k.startsWith("preset_") && v is String }
             .keys
@@ -768,16 +686,13 @@ class AudioOutputActivity : AppCompatActivity() {
         return runCatching { JSONObject(str) }.getOrNull()
     }
 
-    /** Builds the entries used by every preset dropdown on this screen.
-     *  Order: `"(none)"`, every custom preset name (with full preset
-     *  JSON so the curve preview can detect CSE), then optionally a
-     *  sentinel for a dangling/missing binding. */
+    /** Entries for every preset dropdown on this screen. Order: "(none)", each custom preset
+     *  (with full JSON so the curve preview can detect CSE), then optionally a dangling/missing sentinel. */
     private fun buildPresetEntries(missingPresetName: String?): List<PresetDropdownAdapter.Entry> {
         val out = mutableListOf<PresetDropdownAdapter.Entry>()
         out.add(PresetDropdownAdapter.Entry("(none)", null))
-        // "Disable EQ" — fully detaches our DP while this device is the
-        // active output (vs "(none)" which keeps the current preset).
-        // null JSON → blank curve, no preamp subtitle, like "(none)".
+        // "Disable EQ" fully detaches our DP while this device is active (vs "(none)" which keeps
+        // the current preset); null JSON → blank curve, no preamp subtitle.
         out.add(PresetDropdownAdapter.Entry(DISABLE_LABEL, null, isDisable = true))
         for (name in listCustomPresetNames()) {
             out.add(PresetDropdownAdapter.Entry(name, loadPresetJson(name)))
@@ -793,9 +708,8 @@ class AudioOutputActivity : AppCompatActivity() {
         if (checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
             == PackageManager.PERMISSION_GRANTED
         ) return
-        // Fire-and-forget, like the notification permission flow. We
-        // don't gate the UI on this — without it, BT identity falls back
-        // to product name only.
+        // Fire-and-forget (like the notification permission flow); UI isn't gated on it — without
+        // it, BT identity falls back to product name only.
         requestPermissions(arrayOf(android.Manifest.permission.BLUETOOTH_CONNECT), REQ_BT_CONNECT)
     }
 
@@ -819,12 +733,9 @@ class AudioOutputActivity : AppCompatActivity() {
         }
     }
 
-    /** Smooth Compose-style expand/collapse, matching the AppDrawer
-     *  launcher's `AnimatedVisibility` feel: pure height interpolation
-     *  via [android.animation.ValueAnimator] driving
-     *  `layoutParams.height`. No Transition fade, no visibility blink.
-     *  300 ms symmetric, FastOutSlowInInterpolator (Compose default).
-     *  Chevron rotates in lockstep. */
+    /** Compose-style expand/collapse (AppDrawer `AnimatedVisibility` feel): pure height
+     *  interpolation via ValueAnimator on `layoutParams.height` — no Transition fade, no visibility
+     *  blink. Symmetric [EXPAND_DURATION_MS], FastOutSlowInInterpolator (Compose default); chevron rotates in lockstep. */
     private fun applyDevicesExpanded(animate: Boolean) {
         val targetRotation = if (devicesExpanded) 90f else 0f
         if (!animate) {
@@ -892,16 +803,12 @@ class AudioOutputActivity : AppCompatActivity() {
 
     companion object {
         private const val REQ_BT_CONNECT = 300
-        /** Display label for the "fully detach DP for this device"
-         *  dropdown choice. Persisted as
+        /** Display label for the "fully detach DP for this device" dropdown choice; persisted as
          *  [EqPreferencesManager.DEVICE_PRESET_DISABLED] in the binding. */
         private const val DISABLE_LABEL = "Disable EQ"
         private const val PREF_DEVICES_EXPANDED = "devicesExpanded"
-        /** Symmetric duration for the Devices section open/close.
-         *  Bumped past Compose's 300 ms `AnimatedVisibility` default
-         *  toward Material's "Emphasized" timing (≈500 ms) so the
-         *  slide reads as a deliberate motion rather than a quick
-         *  reveal. */
+        /** Devices section open/close duration — past Compose's 300 ms `AnimatedVisibility` default
+         *  toward Material's "Emphasized" ≈500 ms so the slide reads deliberate. */
         private const val EXPAND_DURATION_MS = 500L
     }
 }

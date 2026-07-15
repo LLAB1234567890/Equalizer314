@@ -242,9 +242,8 @@ class TargetCurveActivity : AppCompatActivity() {
                 eqPrefs.savePresetName("Generate Custom EQ")
                 eqPrefs.saveAutoEqName("")
                 eqPrefs.saveAutoEqSource("")
-                // Generated curves are flat single-channel — disable Channel
-                // Side EQ if it was on so MainActivity rebinds the graph to
-                // bothEq instead of staying on a stale leftEq/rightEq view.
+                // Generated curves are single-channel — disable Channel Side EQ so
+                // MainActivity rebinds to bothEq instead of a stale leftEq/rightEq view.
                 eqPrefs.saveChannelSideEqEnabled(false)
                 eqPrefs.clearLeftRightBands()
 
@@ -435,10 +434,8 @@ class TargetCurveActivity : AppCompatActivity() {
         exportLauncher.launch(intent)
     }
 
-    /** Save the currently-shown generated APO into the imported-presets list
-     *  so it shows up in the AutoEQ screen alongside imported and database
-     *  entries. Prompts the user for a name; falls back to a measurement-
-     *  derived default. */
+    /** Save the generated APO as a custom preset (re-selectable, bindable).
+     *  Prompts for a name; falls back to a measurement-derived default. */
     private fun showAddToPresetsDialog() {
         val apoText = resultText.text.toString().trim()
         if (apoText.isEmpty()) {
@@ -459,9 +456,8 @@ class TargetCurveActivity : AppCompatActivity() {
             setTextColor(0xFFE2E2E2.toInt()); textSize = 20f
             setPadding(0, 0, 0, (12 * density).toInt())
         }
-        // Input box matches the other "Save Custom Preset" dialogs:
-        // a FrameLayout with a rounded 12dp #555555 border wrapping a
-        // borderless EditText (rather than styling the EditText itself).
+        // Input box: FrameLayout with rounded 12dp #555555 border wrapping a
+        // borderless EditText, matching the other "Save Custom Preset" dialogs.
         val inputBox = android.widget.FrameLayout(this).apply {
             layoutParams = android.widget.LinearLayout.LayoutParams(
                 android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
@@ -540,12 +536,9 @@ class TargetCurveActivity : AppCompatActivity() {
         cancelBtn.setOnClickListener { dialog.dismiss() }
         addBtn.setOnClickListener {
             val name = nameInput.text.toString().trim().ifEmpty { defaultName }
-            // Save into the app's custom_presets (the same store the
-            // main-screen "Save Custom Preset" writes), not the AutoEQ
-            // imported list, so the generated EQ becomes a first-class
-            // preset: re-selectable from the main list and bindable to
-            // apps / devices. Use the already-computed profile when
-            // available, else re-parse the displayed APO text.
+            // Save into custom_presets (same store as the main "Save Custom Preset"),
+            // not the AutoEQ imported list, so the EQ is re-selectable and bindable to
+            // apps/devices. Use the computed profile if available, else re-parse the APO.
             val profile = lastComputedProfile ?: AutoEqParser.parse(apoText)
             if (profile == null) {
                 Toast.makeText(this, "Couldn't parse the generated EQ", Toast.LENGTH_SHORT).show()

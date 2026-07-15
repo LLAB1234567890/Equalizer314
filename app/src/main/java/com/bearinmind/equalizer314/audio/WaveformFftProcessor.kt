@@ -3,29 +3,20 @@ package com.bearinmind.equalizer314.audio
 import kotlin.math.*
 
 /**
- * Processes raw waveform bytes from Android's Visualizer.getWaveForm()
- * into a proper dB spectrum suitable for professional-looking display.
- *
- * KEY INSIGHT: Instead of using Visualizer.getFft() (which gives pre-cooked
- * 8-bit FFT with no windowing control), we take the raw waveform and do
- * our own windowing + zero-padded FFT. This produces dramatically better
- * results despite using the same 8-bit source data:
- *
- * - Hann window eliminates spectral leakage (the spiky look)
- * - Zero-padding 1024→4096 gives 4× finer bin spacing (smoother curves)
- * - Float-precision FFT instead of system's 8-bit internal FFT
- * - Proper normalization since we control every step
- *
- * The 8-bit dynamic range (~48 dB) is the hard ceiling, but for a visual
- * display behind an EQ curve this is more than adequate. Pro-Q's visible
- * range is typically only ~60 dB and 48 dB covers the meaningful content.
+ * Processes raw waveform bytes from Visualizer.getWaveForm() into a dB spectrum for display.
+ * Instead of Visualizer.getFft() (pre-cooked 8-bit, no windowing control), we window + zero-pad
+ * FFT the raw waveform ourselves — much better despite the same 8-bit source:
+ * - Hann window eliminates spectral leakage
+ * - Zero-padding 1024→4096 gives 4× finer bin spacing
+ * - Float-precision FFT vs system's 8-bit internal FFT
+ * - Proper normalization
+ * 8-bit dynamic range (~48 dB) is the ceiling but adequate here (Pro-Q's visible range is ~60 dB).
  */
 class WaveformFftProcessor(
     val fftSize: Int = 4096,   // zero-padded output size
     private val sampleRate: Int = 48000
 ) {
-    // Pre-computed Hann window for the capture size (1024)
-    // Will be lazily initialized on first use with actual capture size
+    // Hann window, lazily built on first use with the actual capture size (typically 1024)
     private var hannWindow: FloatArray? = null
     private var lastCaptureSize: Int = 0
 
@@ -74,12 +65,8 @@ class WaveformFftProcessor(
         SimpleFFT.fft(fftReal, fftImag)
 
         // ── Step 3: Magnitude → dB ──
-        // Normalization factor: corrects for Hann window energy loss and single-sided spectrum.
-        //   - ×2 for discarding negative-frequency half
-        //   - ×2 for Hann window average value of 0.5
-        //   - ÷captureSize for FFT normalization (NOT fftSize — we only had captureSize real samples)
-        // Combined: 4.0 / captureSize
-        // A full-scale sine (amplitude 1.0) will read 0 dB after this normalization.
+        // normFactor = 4/captureSize: ×2 (single-sided, drop negative-freq half) × ×2 (Hann avg 0.5)
+        // ÷captureSize (FFT norm — NOT fftSize, only captureSize real samples). Full-scale sine → 0 dB.
         val normFactor = 4f / captureSize
 
         val dbOut = FloatArray(binCount)
@@ -95,8 +82,6 @@ class WaveformFftProcessor(
         return dbOut
     }
 
-    /**
-     * Get the frequency for a given bin index.
-     */
+    /** Frequency for a given bin index. */
     fun binToFrequency(bin: Int): Float = bin * sampleRate.toFloat() / fftSize
 }

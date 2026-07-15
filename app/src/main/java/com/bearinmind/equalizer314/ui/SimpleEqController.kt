@@ -38,12 +38,10 @@ class SimpleEqController(
     private var undoBtn: View? = null
     private var redoBtn: View? = null
 
-    // Debounced persist of Simple-EQ gains. Each ACTION_MOVE on a bar
-    // schedules a flush 250 ms in the future, cancelling any prior
-    // pending flush. Drag-end and lifecycle saves call saveGains()
-    // directly. Without this, edits only landed on disk when the
-    // activity reached onPause — abrupt process death (Bluetooth A2DP
-    // teardown, force-stop, system memory pressure) lost user edits.
+    // Debounced persist of Simple-EQ gains: each ACTION_MOVE schedules a flush
+    // 250 ms out (cancelling the prior one); drag-end/lifecycle call saveGains()
+    // directly. Otherwise edits only hit disk at onPause and abrupt process death
+    // (A2DP teardown, force-stop, memory pressure) lost them.
     private val persistHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private val persistRunnable = Runnable { saveGains() }
     private fun scheduleGainPersist() {
@@ -107,14 +105,10 @@ class SimpleEqController(
         val density = activity.resources.displayMetrics.density
         val eq = state.parametricEq
 
-        // No "Simple EQ Mode" header — the mode selector card (now
-        // visible in Simple mode and highlighting the Simple tab)
-        // already signals which mode is active, so the title would be
-        // redundant.
+        // No "Simple EQ Mode" header — the mode selector card already signals it.
 
-        // Mini EQ graph preview — scaled-down version of the main EQ graph card
-        // (same styling, half the height: 246dp → 123dp). Shows a live frequency
-        // response curve as the user adjusts the bars.
+        // Mini EQ graph preview — same styling as the main card at half height
+        // (246dp → 123dp); live response curve while adjusting the bars.
         val graphCard = com.google.android.material.card.MaterialCardView(activity).apply {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -188,9 +182,8 @@ class SimpleEqController(
             }
             onDragEnd = {
                 saveSnapshot()
-                // Force an immediate flush at drag-end so the user's
-                // last value survives an abrupt process kill before
-                // the 250 ms debounce window expires.
+                // Immediate flush so the last value survives a process kill
+                // before the 250 ms debounce expires.
                 persistHandler.removeCallbacks(persistRunnable)
                 saveGains()
             }
@@ -200,9 +193,8 @@ class SimpleEqController(
         barsCard = bCard
         container.addView(bCard)
 
-        // Preset picker (initially GONE, toggled by save button)
-        // Styled to match the advanced EQ preset picker: plain ScrollView,
-        // colorSurface background, no card wrapper.
+        // Preset picker (initially GONE, toggled by save button); styled like the
+        // advanced picker: plain ScrollView, colorSurface bg, no card wrapper.
         val pickerScroll = android.widget.ScrollView(activity).apply {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -221,9 +213,8 @@ class SimpleEqController(
         presetPickerContainer = pickerInner
         container.addView(pickerScroll)
 
-        // Preamp card is reparented from eqControlsContainer by switchEqUiMode —
-        // it gets inserted here (index 4, after barsCard=2, presetPicker=3) so it
-        // matches the existing preamp card used in parametric/graphic/table modes.
+        // Preamp card is reparented here by switchEqUiMode (index 4, after
+        // barsCard=2, presetPicker=3), matching the other modes' preamp card.
 
         // Undo / Redo / Reset / Save card
         val controlsCard = com.google.android.material.card.MaterialCardView(activity).apply {
@@ -780,8 +771,7 @@ class SimpleEqController(
     }
 
     /** Build an APO config from the shared-pool preset JSON and hand it to
-     *  MainActivity's export launcher — identical mapping to the advanced
-     *  picker so exports match regardless of which mode saved the preset. */
+     *  MainActivity's export launcher — identical mapping to the advanced picker. */
     private fun exportPresetApo(name: String) {
         val presetJson = eqPrefs.getCustomPresetJson(name) ?: return
         val obj = org.json.JSONObject(presetJson)

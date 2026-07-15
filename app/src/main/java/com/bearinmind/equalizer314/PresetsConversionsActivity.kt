@@ -10,13 +10,11 @@ import com.bearinmind.equalizer314.state.EqPreferencesManager
 import com.google.android.material.color.MaterialColors
 
 /**
- * Sub-settings screen grouping the preset/conversion entries that used to
- * live loose on the main Settings page: AutoEQ & Presets, Generate Custom
- * EQ, and Convert to APO. Reached from the "Presets & Conversions" card.
+ * Sub-settings screen grouping the preset/conversion entries: AutoEQ & Presets,
+ * Generate Custom EQ, and Convert to APO. Reached from the "Presets & Conversions" card.
  *
- * AutoEQ / Generate Custom EQ persist their result to prefs; when one comes
- * back RESULT_OK we propagate RESULT_OK up to MainActivity so it reloads
- * the EQ from prefs (same flow the cards used when they lived there).
+ * AutoEQ / Generate Custom EQ persist to prefs; on their RESULT_OK we propagate
+ * RESULT_OK up to MainActivity so it reloads the EQ from prefs.
  */
 class PresetsConversionsActivity : AppCompatActivity() {
 

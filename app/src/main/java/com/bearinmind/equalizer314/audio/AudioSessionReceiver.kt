@@ -8,22 +8,13 @@ import android.os.Build
 import android.util.Log
 
 /**
- * Manifest receiver for the standard Android audio-effect control
- * session broadcasts. Music apps that opt in send these whenever
- * their audio session starts / stops:
- *
- *   - `AudioEffect.ACTION_OPEN_AUDIO_EFFECT_CONTROL_SESSION`
- *   - `AudioEffect.ACTION_CLOSE_AUDIO_EFFECT_CONTROL_SESSION`
- *
- * Both carry:
- *   - `AudioEffect.EXTRA_AUDIO_SESSION` (int) — the session ID
- *   - `AudioEffect.EXTRA_PACKAGE_NAME` (String) — which app sent it
- *
- * Wavelet uses this exact mechanism (see prior decompile notes:
- * `a6/n0.java` reads both extras, constructs a `DynamicsProcessing`
- * with `Integer.MAX_VALUE` priority on the session). We do the
- * same: forward both extras to [EqService] via a custom action, and
- * [EqService] hands them to [SessionEffectManager].
+ * Manifest receiver for the standard audio-effect control session broadcasts, sent by opt-in music
+ * apps on session start/stop:
+ *   - `AudioEffect.ACTION_OPEN_AUDIO_EFFECT_CONTROL_SESSION` / `..._CLOSE_...`
+ * Both carry `EXTRA_AUDIO_SESSION` (int, session ID) and `EXTRA_PACKAGE_NAME` (String, sender app).
+ * Wavelet uses this same mechanism (`a6/n0.java` constructs a `DynamicsProcessing` at
+ * `Integer.MAX_VALUE` priority). We forward both extras to [EqService] via a custom action; it hands
+ * them to [SessionEffectManager].
  */
 class AudioSessionReceiver : BroadcastReceiver() {
 
@@ -53,9 +44,8 @@ class AudioSessionReceiver : BroadcastReceiver() {
             putExtra(EqService.EXTRA_PACKAGE_NAME, packageName)
         }
 
-        // Use startForegroundService when the service isn't already
-        // running; the service promotes itself via startForeground on
-        // first onStartCommand to satisfy the 5-second FGS deadline.
+        // startForegroundService if not already running; service promotes itself via startForeground
+        // on first onStartCommand to meet the 5-second FGS deadline.
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(serviceIntent)

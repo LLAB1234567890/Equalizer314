@@ -135,77 +135,51 @@ class SpectrumControlActivity : AppCompatActivity() {
     // setupFftSize() — commented out, zero-padding only
 
     private val tickLabelViews = mutableListOf<TextView>()
-    private val tickDotViews = mutableListOf<android.view.View>()
-
     private fun setupPpoSmoothing() {
         val ppoSwitch = findViewById<MaterialSwitch>(R.id.ppoSwitch)
         val ppoSlider = findViewById<Slider>(R.id.ppoSlider)
         val ppoRow = findViewById<android.view.View>(R.id.ppoRow)
-        val tickLabelsRow = findViewById<android.widget.LinearLayout>(R.id.ppoTickLabels)
-        val density = resources.displayMetrics.density
+        val tickLabelsRow = findViewById<android.widget.FrameLayout>(R.id.ppoTickLabels)
 
-        // Custom tick dots overlay on the slider track
-        val tickDotsContainer = findViewById<android.widget.FrameLayout>(R.id.ppoTickDots)
+        // Slider is a stock stepped Material slider now (built-in tick marks
+        // + round thumb, same as the DP Latency Window slider). The old
+        // custom cross-shaped tick overlay was removed with app:tickVisible.
 
-        ppoSlider.post {
-            tickDotsContainer.removeAllViews()
-            tickDotViews.clear()
-            val trackLeft = ppoSlider.trackSidePadding.toFloat()
-            val trackWidth = ppoSlider.width - 2 * ppoSlider.trackSidePadding
-            val lineWidth = (2 * density).toInt()
-            val lineHeight = (12 * density).toInt()
-            val tickColor = 0xFF666666.toInt()
-            val centerY = ppoSlider.height / 2
-
-            val trackThickness = (4 * density).toInt()
-            val armLength = (12 * density).toInt()
-            val cornerR = (2 * density)
-
-            for (i in ppoLabels.indices) {
-                val fraction = i.toFloat() / (ppoLabels.size - 1)
-                val cx = trackLeft + fraction * trackWidth
-                // Vertical arm
-                val vLine = android.view.View(this).apply {
-                    layoutParams = android.widget.FrameLayout.LayoutParams(trackThickness, armLength).apply {
-                        leftMargin = (cx - trackThickness / 2).toInt()
-                        topMargin = centerY - armLength / 2
-                    }
-                    background = android.graphics.drawable.GradientDrawable().apply {
-                        setColor(tickColor)
-                        cornerRadius = cornerR
-                    }
-                }
-                // Horizontal arm
-                val hLine = android.view.View(this).apply {
-                    layoutParams = android.widget.FrameLayout.LayoutParams(armLength, trackThickness).apply {
-                        leftMargin = (cx - armLength / 2).toInt()
-                        topMargin = centerY - trackThickness / 2
-                    }
-                    background = android.graphics.drawable.GradientDrawable().apply {
-                        setColor(tickColor)
-                        cornerRadius = cornerR
-                    }
-                }
-                tickDotViews.add(vLine)
-                tickDotsContainer.addView(vLine)
-                tickDotsContainer.addView(hLine)
-            }
-            updateTickHighlight(ppoSlider.value.toInt().coerceIn(0, 7))
-        }
-
-        // Build tick label views under each tick mark
+        // Build tick label views, each absolutely CENTERED under its tick.
+        // Weighted-row tricks anchor the edge labels' edges (not centers) on
+        // the edge ticks — visibly off for "1/1" and "1/96". Instead, once
+        // the slider knows its geometry, place every label so its center
+        // sits exactly at trackLeft + i/(N−1) · trackWidth.
         tickLabelViews.clear()
         for (label in ppoLabels) {
             val tv = TextView(this).apply {
                 text = label
                 textSize = 10f
-                gravity = android.view.Gravity.CENTER
-                layoutParams = android.widget.LinearLayout.LayoutParams(0,
-                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                 setTextColor(0xFF666666.toInt())
             }
             tickLabelViews.add(tv)
-            tickLabelsRow.addView(tv)
+            tickLabelsRow.addView(tv, android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT))
+        }
+        ppoSlider.post {
+            val trackLeft = ppoSlider.trackSidePadding.toFloat()
+            val trackWidth = (ppoSlider.width - 2 * ppoSlider.trackSidePadding).toFloat()
+            for ((i, tv) in tickLabelViews.withIndex()) {
+                val cx = trackLeft + trackWidth * i / (tickLabelViews.size - 1)
+                // Measure BOLD so the highlight toggle doesn't shift centers.
+                tv.setTypeface(null, android.graphics.Typeface.BOLD)
+                tv.measure(android.view.View.MeasureSpec.UNSPECIFIED, android.view.View.MeasureSpec.UNSPECIFIED)
+                val half = tv.measuredWidth / 2f
+                tv.setTypeface(null, android.graphics.Typeface.NORMAL)
+                tv.gravity = android.view.Gravity.CENTER
+                (tv.layoutParams as android.widget.FrameLayout.LayoutParams).apply {
+                    width = tv.measuredWidth
+                    leftMargin = (cx - half).toInt().coerceAtLeast(0)
+                }
+                tv.requestLayout()
+            }
+            updateTickHighlight(ppoSlider.value.toInt().coerceIn(0, 7))
         }
 
         val ppoEnabled = eqPrefs.getPpoEnabled()
@@ -223,38 +197,15 @@ class SpectrumControlActivity : AppCompatActivity() {
             applyCurrentSettings()
         }
 
-        // Smooth drag — update highlight live as thumb moves
+        // Stepped slider snaps natively — save + apply per step, like the
+        // DP Latency Window slider.
         ppoSlider.addOnChangeListener { _, value, fromUser ->
             if (!fromUser) return@addOnChangeListener
-            val nearest = kotlin.math.round(value).toInt().coerceIn(0, 7)
-            updateTickHighlight(nearest)
+            val idx = value.toInt().coerceIn(0, 7)
+            updateTickHighlight(idx)
+            eqPrefs.savePpoIndex(idx)
+            applyCurrentSettings()
         }
-
-        // Snap to nearest tick on release with spring animation
-        ppoSlider.addOnSliderTouchListener(object : Slider.OnSliderTouchListener {
-            override fun onStartTrackingTouch(slider: Slider) {}
-            override fun onStopTrackingTouch(slider: Slider) {
-                val snapped = kotlin.math.round(slider.value).toInt().coerceIn(0, 7)
-                // Spring animation to snap value
-                android.animation.ValueAnimator.ofFloat(slider.value, snapped.toFloat()).apply {
-                    duration = 300
-                    interpolator = android.view.animation.OvershootInterpolator(1.2f)
-                    addUpdateListener { anim ->
-                        val v = anim.animatedValue as Float
-                        slider.value = v.coerceIn(0f, 7f)
-                    }
-                    addListener(object : android.animation.AnimatorListenerAdapter() {
-                        override fun onAnimationEnd(animation: android.animation.Animator) {
-                            slider.value = snapped.toFloat()
-                            updateTickHighlight(snapped)
-                            eqPrefs.savePpoIndex(snapped)
-                            applyCurrentSettings()
-                        }
-                    })
-                    start()
-                }
-            }
-        })
     }
 
     private fun updateTickHighlight(selectedIdx: Int) {

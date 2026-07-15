@@ -18,15 +18,13 @@ data class AutoEqFilter(
 /**
  * Parsed representation of an APO config file.
  *
- * - [filters] — flat list of every filter in the file, in source order.
- *   Always populated. For single-channel (no `Channel:` directive) files
- *   this is the authoritative list.
- * - [leftFilters] / [rightFilters] — per-channel buckets when the file
- *   contains `Channel: L` / `Channel: R` directives. Filters scoped to both
- *   (`Channel: L R` or filters before any directive) appear in BOTH lists.
- * - [perChannel] — true iff any `Channel: L` or `Channel: R` line appeared
- *   in the file. When false, [filters] == [leftFilters] == [rightFilters]
- *   (all identical); callers can ignore the split.
+ * - [filters] — flat list of every filter in source order; always populated,
+ *   authoritative for single-channel (no `Channel:` directive) files.
+ * - [leftFilters] / [rightFilters] — per-channel buckets for `Channel: L`/`R`
+ *   directives. Filters scoped to both (`Channel: L R` or before any directive)
+ *   appear in BOTH lists.
+ * - [perChannel] — true iff any `Channel: L`/`R` line appeared. When false,
+ *   [filters] == [leftFilters] == [rightFilters]; callers can ignore the split.
  */
 data class AutoEqProfile(
     val preampDb: Float,

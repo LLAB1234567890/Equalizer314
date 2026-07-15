@@ -4,21 +4,18 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * Converts EQ export files from Wavelet and Poweramp into APO config-style
- * text that the rest of the app's importers already understand.
+ * Converts Wavelet / Poweramp EQ exports into APO config-style text the app's
+ * importers already understand.
  *
- * Wavelet exports are already APO format (Preamp + Filter N: ON ... lines)
- * so they pass through with a tag note. Poweramp exports are JSON in one
- * of a few shapes:
- *   - Parametric ("PowerampEqualizer.parametric"): array of bands with
- *     freq / gain / q (and sometimes type) → emitted as PK / LSC / HSC.
- *   - Graphic (key/value pairs like "55hz=0.0;77hz=0.5;...") packed into
- *     "EqualizerSettings" or as a flat object → emitted as PK at the
- *     fixed graphic-EQ centers.
+ * Wavelet exports are already APO (Preamp + Filter N: ON lines) → passthrough.
+ * Poweramp exports are JSON in a few shapes:
+ *   - Parametric ("PowerampEqualizer.parametric"): band array freq/gain/q(/type)
+ *     → PK / LSC / HSC.
+ *   - Graphic ("55hz=0.0;77hz=0.5;..." key/value in "EqualizerSettings" or a
+ *     flat object) → PK at the fixed graphic-EQ centers.
  *
- * The converter is permissive: it tries each known shape and emits the
- * first one that produces filters. Unknown shapes return null with a
- * descriptive [Result.error] string.
+ * Permissive: tries each known shape, emits the first that produces filters.
+ * Unknown shapes → null with a descriptive [Result.error] string.
  */
 object ApoConverter {
 
@@ -64,16 +61,13 @@ object ApoConverter {
     // ---- AutoEQ GraphicEQ -----------------------------------------------
 
     /**
-     * Parses AutoEQ's "GraphicEQ" single-line format.
+     * Parses AutoEQ's "GraphicEQ" single-line format:
+     *   "GraphicEQ: 20 -5.5; 21 -5.5; 22 -5.5; ..."
      *
-     *   "GraphicEQ: 20 -5.5; 21 -5.5; 22 -5.5; 23 -5.5; ..."
-     *
-     * AutoEQ outputs ~120 points at roughly 1/24-octave spacing. Emitting
-     * one PK per point would give 120+ filters, which is unusable in a
-     * normal parametric EQ. Instead we feed the curve through [EqFitter]
-     * to fit it to a small number of well-placed PK / shelf filters
-     * (default 10) — same algorithm AutoEQ itself uses to generate
-     * parametric presets from frequency-response measurements.
+     * AutoEQ outputs ~120 points at ~1/24-octave spacing; one PK per point (120+
+     * filters) is unusable. Instead feed the curve through [EqFitter] to fit a
+     * small number of PK/shelf filters (default 10) — same algorithm AutoEQ uses
+     * to generate parametric presets from FR measurements.
      */
     private fun tryAutoEqGraphicEq(s: String): String? {
         if (!s.lowercase().startsWith("graphiceq")) return null
@@ -100,9 +94,8 @@ object ApoConverter {
             FloatArray(indices.size) { rawFreqs[indices[it]] },
             FloatArray(indices.size) { rawLevels[indices[it]] },
         )
-        // Treat the GraphicEQ curve as the TARGET and a flat 0 dB
-        // line as the measurement. EqFitter then computes correction
-        // filters whose composite response matches the GraphicEQ curve.
+        // GraphicEQ curve = TARGET, flat 0 dB = measurement; EqFitter computes
+        // correction filters whose composite response matches the curve.
         val flatMeasurement = FreqResponse(
             target.frequencies,
             FloatArray(target.frequencies.size) { 0f },
@@ -110,8 +103,7 @@ object ApoConverter {
         val profile = try {
             EqFitter.computeCorrection(flatMeasurement, target, numBands = 10)
         } catch (e: Exception) {
-            // If the fitter blows up for any reason, fall back to a
-            // dense PK emit (still better than no import at all).
+            // Fitter failed — fall back to a dense PK emit.
             val bands = indices.map { rawFreqs[it] to rawLevels[it] }
             return formatPeakingFilters(bands, preampDb = 0f, q = 6f)
         }
@@ -146,13 +138,11 @@ object ApoConverter {
     // ---- Wrapped preset array (e.g. third-party EQ exports) -------------
 
     /**
-     * Handles JSON of the form `[{"name": ..., "preamp": ..., "bands": [...]}]`
-     * — a top-level array whose first element is a preset wrapper. Each
-     * band uses numeric `type` codes:
-     *   0 = low-shelf (LSC), 1 = high-shelf (HSC), 2 = peaking (PK).
-     * `q == 0` is treated as "no Q specified" → fall back to 1.41 (the
-     * graphic-EQ default), since some exporters zero the field for
-     * graphic-style bands.
+     * JSON `[{"name":..., "preamp":..., "bands":[...]}]` — top-level array whose
+     * first element is a preset wrapper. Numeric band `type` codes:
+     *   0 = LSC, 1 = HSC, 2 = PK.
+     * `q == 0` = "no Q specified" → 1.41 (graphic-EQ default); some exporters
+     * zero the field for graphic-style bands.
      */
     private fun tryWrappedPresetArray(any: Any): String? {
         val arr = (any as? JSONArray) ?: return null

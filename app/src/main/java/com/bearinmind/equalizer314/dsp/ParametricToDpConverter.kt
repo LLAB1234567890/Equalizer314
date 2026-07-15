@@ -66,19 +66,14 @@ object ParametricToDpConverter {
     private const val ADAPT_ITERS = 256
 
     /**
-     * Slope-adaptive cutoff placement (issue #26). Our 127 bands are
-     * log-spaced but the engine's FFT bins are linear-spaced, so at high
-     * frequencies one band "stair" spans many bins — and where the curve
-     * is steep (e.g. between a +5 dB bell at 8 kHz and a −4 dB shelf at
-     * 10 kHz) a flat stair can't follow it, REW-measured as a ~0.8 dB dip
-     * at 8.5 kHz. This redistributes filler cutoffs: repeatedly move the
-     * "cheapest" boundary (least curve variation if merged away) into the
-     * middle of the worst segment (most curve variation), so no stair has
-     * to span a steep stretch. Anchors (parametric band centres) are never
-     * removed. Segments narrower than one FFT bin are never split — the
-     * engine couldn't render the extra boundary anyway. Two sub-20 Hz
-     * seeds give bins 0 and 1 independent stairs so the deconvolution can
-     * shape the lowest octave.
+     * Slope-adaptive cutoff placement (issue #26). 127 log-spaced bands vs
+     * linear-spaced FFT bins means one HF stair spans many bins; a flat
+     * stair over a steep stretch was REW-measured as a ~0.8 dB dip at
+     * 8.5 kHz. Fix: repeatedly move the cheapest boundary (least variation
+     * if merged) into the worst segment (most variation). Anchors (band
+     * centres) never removed. Segments < one FFT bin never split (engine
+     * can't render the boundary). Two sub-20 Hz seeds give bins 0/1
+     * independent stairs to shape the lowest octave.
      */
     private fun adaptiveCutoffs(
         eq: ParametricEqualizer,
@@ -179,17 +174,15 @@ object ParametricToDpConverter {
     }
 
     /**
-     * Bin-aware stair gains (issue #26). AOSP's engine renders band gains
-     * as a per-bin staircase (band i covers bins prevStop+1..binStop,
-     * binStop = round(cutoffHz·blockSize/sampleRate)) and — measured by
-     * system identification on a real device (staircase from logcat vs a
-     * REW sweep pair) — applies those per-bin gains with essentially NO
-     * inter-bin smearing (fitted kernel [0.04, 0.92, 0.04] ≈ identity,
-     * NOT the sqrt-Hann [¼,½,¼] the AOSP source suggests). So the optimal
-     * band gain is simply the analytic target averaged over the bins its
-     * stair covers — no pre-sharpening. (A Hann-inverting Van Cittert
-     * deconvolution was tried and REW-measured to cause ±2 dB ringing on
-     * densely alternating low-frequency curves; removed.)
+     * Bin-aware stair gains (issue #26). Engine renders a per-bin staircase
+     * (band i covers bins prevStop+1..binStop, binStop =
+     * round(cutoffHz·blockSize/sampleRate)). System-ID on a real device
+     * (logcat staircase vs REW sweep pair) found NO inter-bin smearing:
+     * fitted kernel [0.04, 0.92, 0.04] ≈ identity, NOT the sqrt-Hann
+     * [¼,½,¼] the AOSP source implies. So optimal band gain = analytic
+     * target averaged over the stair's bins, no pre-sharpening. (Van
+     * Cittert Hann-deconvolution tried, removed — REW-measured ±2 dB
+     * ringing on dense LF curves.)
      */
     private fun bandSpaceDeconvolve(
         eq: ParametricEqualizer,
@@ -326,21 +319,17 @@ object ParametricToDpConverter {
     )
 
     /**
-     * Interleaved conversion using BOTH of DynamicsProcessing's EQ stages
-     * (each hard-capped at 128 bands by the AIDL layer). SPLIT-HALF
-     * construction: each stage independently fits the FULL analytic curve
-     * on its own stair grid and renders HALF the dB. Post's boundaries sit
-     * at the ARITHMETIC midpoints of Pre's (the engine's bins are linear
-     * in Hz, so arithmetic — not geometric — lands mid-stair in bin
-     * space). Cascaded stages add in dB, so the sum is the average of two
-     * offset staircases — a 256-breakpoint fit whose steps are half-height:
-     * simulation on the 12-band torture curve at the 341 ms rung halves
-     * both worst-case (0.69 → 0.36 dB) and mean (0.16 → 0.08 dB) error.
-     * (A residual-fit variant — Post carrying target minus Pre's rendered
-     * staircase — was simulated and does NOTHING: within a stair the
-     * residual is a ramp, and the offset Post stair averages one stair's
-     * ramp-end against the next one's ramp-start, cancelling to ~0.)
-     * Both stages run inside the same FFT frame: no added latency.
+     * Interleaved conversion using BOTH DP EQ stages (each AIDL-capped at
+     * 128 bands). SPLIT-HALF: each stage fits the FULL curve on its own
+     * grid and renders HALF the dB; Post's boundaries at the ARITHMETIC
+     * midpoints of Pre's (bins are linear-Hz, so arithmetic — not geometric
+     * — lands mid-stair). Cascaded dB-sum = average of two offset
+     * staircases, a 256-breakpoint half-height fit: sim on the 12-band
+     * torture curve at 341 ms halves worst-case (0.69→0.36 dB) and mean
+     * (0.16→0.08 dB). Same FFT frame, no added latency. (A residual-fit
+     * variant — Post = target minus Pre's staircase — sims to NOTHING: the
+     * per-stair residual is a ramp, and the offset Post stair averages one
+     * ramp-end against the next ramp-start, cancelling to ~0.)
      */
     fun convertInterleaved(eq: ParametricEqualizer): InterleavedBands {
         val fs = deviceSampleRateHz

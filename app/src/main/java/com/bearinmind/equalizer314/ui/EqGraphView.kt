@@ -37,9 +37,8 @@ class EqGraphView @JvmOverloads constructor(
     // Second ghost for the Both view: L and R composites drawn together.
     private var ghostEq2: ParametricEqualizer? = null
 
-    // Shared "Both" layer (CSE): summed into the solid and ghost curves so
-    // every view shows what's actually audible (channel + shared). Skipped on
-    // the solid curve when that curve IS the shared layer (Both view).
+    // Shared "Both" layer (CSE): summed into solid and ghost curves so every view
+    // shows what's audible; skipped when the solid curve IS the shared layer (Both view).
     private var overlayEq: ParametricEqualizer? = null
     private val bandPoints = mutableListOf<BandPoint>()
     private var activeBandIndex: Int? = null
@@ -60,10 +59,8 @@ class EqGraphView @JvmOverloads constructor(
     var verticalPadding = 80f
     // Fill the area between the EQ curve and the 0dB line with a translucent color
     var showCurveFill = false
-    // Per-band curve overlay (issue #40): draw each enabled band's
-    // individual response as a thin line + translucent fill in the
-    // band's custom color (falls back to grey), under the summed
-    // white curve — the digital-console / FabFilter look.
+    // Per-band curve overlay (issue #40): each enabled band's response as a thin
+    // line + translucent fill in the band's color (grey fallback), under the summed curve.
     var showBandCurves = false
         set(value) {
             field = value
@@ -700,8 +697,6 @@ class EqGraphView @JvmOverloads constructor(
         }
     }
 
-    /** Draw smooth spectrum from Visualizer (pre-normalized 0..1 dB values) */
-    /** Draw spectrum — magnitudes are pre-normalized 0..1 from VisualizerHelper */
     private fun calculatePointPositions(vPad: Float, graphWidth: Float, graphHeight: Float) {
         for (point in bandPoints) {
             point.x = freqToX(point.frequency, graphWidth).coerceIn(23f, graphWidth - 23f)
@@ -800,12 +795,9 @@ class EqGraphView @JvmOverloads constructor(
             }
         }
 
-        // Per-band curves (issue #40): each enabled band's individual
-        // response as a thin colored line + translucent matching fill,
-        // drawn BEFORE the sum curve so the white line stays on top.
-        // Skipped in MBC mode (the EQ curve is already de-emphasised
-        // there) and for effectively-flat bands (0 dB bells would just
-        // re-trace the 0 line and add clutter).
+        // Per-band curves (issue #40), drawn BEFORE the sum curve so the white line
+        // stays on top. Skipped in MBC mode (EQ curve already de-emphasised) and for
+        // flat bands (0 dB bells would just re-trace the 0 line).
         if (showBandCurves && mbcCrossovers == null) {
             val zeroY = vPad + graphHeight * (1f - (0f - minGain) / (maxGain - minGain))
             val density = resources.displayMetrics.density
@@ -821,11 +813,8 @@ class EqGraphView @JvmOverloads constructor(
                     val db = eq.getBandFrequencyResponse(b, freq)
                     if (db.isNaN() || db.isInfinite()) continue
                     if (abs(db) > maxAbsDb) maxAbsDb = abs(db)
-                    // No clamping — same convention as the white sum
-                    // curve: LP/HP cuts dive past the inner plot edge and
-                    // the canvas clips at the view bounds, so the fill
-                    // runs through the whole graph (SQ-5 style) instead
-                    // of stopping at the top/bottom gridline.
+                    // No clamping (same as the sum curve): LP/HP cuts dive past the plot
+                    // edge, canvas clips at view bounds, fill runs full-graph (SQ-5 style).
                     val yB = vPad + graphHeight * (1f - (db - minGain) / (maxGain - minGain))
                     if (!started) { bandPath.moveTo(x, yB); started = true }
                     else bandPath.lineTo(x, yB)
@@ -842,18 +831,15 @@ class EqGraphView @JvmOverloads constructor(
                     style = Paint.Style.FILL
                 })
                 canvas.drawPath(bandPath, Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    // Dim outline — the translucent fill carries the color;
-                    // the line is just a subtle edge so it doesn't compete
-                    // with the white sum curve.
+                    // Dim outline — the fill carries the color; the line is a subtle
+                    // edge that doesn't compete with the white sum curve.
                     color = (baseColor and 0x00FFFFFF) or 0x55000000
                     style = Paint.Style.STROKE
                     strokeWidth = 1.2f * density
                 })
             }
-            // Re-draw the 0 dB reference line on top of the band fills
-            // (they just painted over the grid) — slightly brighter than
-            // the grid so the reference cuts through the colored regions,
-            // SQ-5 style.
+            // Re-draw the 0 dB reference over the band fills, slightly brighter than
+            // the grid so it cuts through the colored regions (SQ-5 style).
             canvas.drawLine(0f, zeroY, graphWidth, zeroY, Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = if (isLightTheme()) 0xFFADADAD.toInt() else 0xFF555555.toInt()
                 strokeWidth = 1f * density
@@ -1017,10 +1003,8 @@ class EqGraphView @JvmOverloads constructor(
         }
     }
 
-    // Expander/noise gate gain (downward expansion below noise gate threshold)
-    // For signals below noiseGateThreshold, gain = expanderRatio × (input - noiseGateThreshold)
-    // Expander/gate: attenuates signal below noise gate threshold.
-    // GR is always negative (or zero) — pushes quiet signals further down.
+    // Expander/gate: downward expansion below noiseGateThreshold —
+    // gain = (expanderRatio − 1) × (input − NGT), always ≤ 0 (pushes quiet signals down).
     private fun expanderGainDb(inputDb: Float, noiseGateThreshold: Float, expanderRatio: Float): Float {
         if (inputDb >= noiseGateThreshold || expanderRatio <= 1f) return 0f
         // (expanderRatio - 1) is positive, (inputDb - NGT) is negative → result is negative ✓
@@ -1134,9 +1118,8 @@ class EqGraphView @JvmOverloads constructor(
             }
         }
 
-        // --- Draw draggable triangles at band center frequencies ---
-        // ▼ pointing down = postGain (output level)
-        // ▲ pointing up = range (max gain reduction)
+        // --- Draggable triangles at band centers: ▼ = postGain (output level),
+        // ▲ = range (max gain reduction) ---
         val triPath = Path()
 
         for (i in 0 until bandCount) {
@@ -1314,19 +1297,13 @@ class EqGraphView @JvmOverloads constructor(
         strokeWidth = 2f
     }
 
-    // All paints above default to the dark palette. When the app is in
-    // light mode (Settings → Light Theme), flip them here. This init
-    // block must stay AFTER every paint property declaration — Kotlin
-    // runs initializers in declaration order, so moving it up would
-    // touch null paints. The view is reconstructed on theme change
-    // (setDefaultNightMode recreates the activity), so a one-shot init
-    // is enough.
+    // Flips the dark-default paints for light mode. Must stay AFTER every paint
+    // declaration (Kotlin runs initializers in order — moving up touches null paints).
+    // One-shot is enough: setDefaultNightMode recreates the activity on theme change.
     init {
         if (isLightTheme()) {
-            // Exact mirrors of the dark values: each grey sits at the
-            // same luminance distance from the light graph bg (#E4E4E4)
-            // as its dark counterpart does from #1E1E1E, so the light
-            // theme keeps the dark theme's contrast relationships.
+            // Each grey sits at the same luminance distance from the light bg
+            // (#E4E4E4) as its dark counterpart from #1E1E1E — same contrast relationships.
             gridPaint.color = 0xFFCFCFCF.toInt()              // dark #333333
             curvePaint.color = 0xFF585858.toInt()             // dark #AAAAAA
             pointBgPaint.color = 0xFFE4E4E4.toInt()           // graph bg
@@ -1368,11 +1345,9 @@ class EqGraphView @JvmOverloads constructor(
         val padV = 8f
         val cornerRadius = 12f * resources.displayMetrics.density
         val labelX = (width - labelWidth) / 2f
-        // Baseline moved up so the band card sits flush near the top
-        // edge of the graph (rect.top = labelY - 24f = 6f). The
-        // device/preset overlay chip in activity_main.xml stacks
-        // directly below this card — keep its layout_marginTop in
-        // sync with the new rect.bottom (labelY + padV = 38f).
+        // Card sits flush near the graph top (rect.top = labelY - 24f = 6f); the
+        // device/preset chip in activity_main.xml stacks below — keep its
+        // layout_marginTop in sync with rect.bottom (labelY + padV = 38f).
         val labelY = 30f
 
         val rect = android.graphics.RectF(
@@ -1726,9 +1701,8 @@ class EqGraphView @JvmOverloads constructor(
             val graphWidth = width.toFloat()
             val graphHeight = height - 2 * vPad
 
-            // Free X+Y drag in every mode — Graphic & Table follow the
-            // dot's new frequency, their controllers re-bind to the
-            // updated band on the next onBandChanged tick.
+            // Free X+Y drag in every mode; Graphic & Table controllers re-bind to
+            // the updated band on the next onBandChanged tick.
             val newFreq = xToFreq(x, graphWidth)
             point.frequency = newFreq
 

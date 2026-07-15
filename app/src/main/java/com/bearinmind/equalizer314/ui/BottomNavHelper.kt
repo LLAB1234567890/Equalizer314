@@ -84,7 +84,6 @@ object BottomNavHelper {
 
         setHighlightInstant(activity, currentScreen)
         updateStatus(activity, eqPrefs)
-        // Set FAB from saved power state instantly — no animation on startup
         val savedPower = eqPrefs.getPowerState()
         setPowerFabInstant(activity, savedPower)
     }

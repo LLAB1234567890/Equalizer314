@@ -48,10 +48,8 @@ class  MainActivity : AppCompatActivity() {
     private lateinit var eqPrefs: EqPreferencesManager
 
     private var pendingExportText: String? = null
-    // Once-per-process gate so we don't fire the POST_NOTIFICATIONS
-    // dialog every time the user taps the power button. Combined with
-    // not returning early from startProcessing(), this prevents the
-    // recursive freeze when notifications are OS-disabled.
+    // Once-per-process POST_NOTIFICATIONS gate; with startProcessing() not
+    // returning early, prevents the recursive freeze when notifications are OS-disabled.
     private var notificationPermissionRequested = false
     private val presetExportLauncher = registerForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
@@ -221,17 +219,13 @@ class  MainActivity : AppCompatActivity() {
         if (result.resultCode == RESULT_OK) handlePresetReturn()
     }
 
-    // The AutoEQ / Generate Custom EQ / Convert cards now live in
-    // PresetsConversionsActivity. It returns RESULT_OK when a preset was
-    // applied there, so we reload the EQ from prefs on return.
+    // PresetsConversionsActivity returns RESULT_OK when a preset was applied there.
     private val presetsConversionsLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == RESULT_OK) handlePresetReturn()
     }
 
-    /** Common refresh for AutoEQ / TargetCurve preset returns. The launched
-     *  activity persists the new bands and (possibly) flips Channel Side EQ
-     *  off; we still need to rebind the graph and audio to the new active EQ
-     *  reference so the UI doesn't keep showing a stale leftEq/rightEq view. */
+    /** Common refresh for AutoEQ / TargetCurve preset returns: rebind graph +
+     *  audio to the new active EQ so the UI doesn't show a stale leftEq/rightEq view. */
     private fun handlePresetReturn() {
         // Reset stale band selection — if CSE was on, selectedBandIndex may
         // point past the end of the new bothEq.
@@ -286,9 +280,8 @@ class  MainActivity : AppCompatActivity() {
                     leftBands = leftSpecs,
                     rightBands = rightSpecs,
                 )
-                // Persist L's bands as the main "bands" state + both L and R
-                // under their own prefs keys so the divergence survives a
-                // process restart.
+                // Persist L as the main "bands" state + L/R under their own keys
+                // so the divergence survives a process restart.
                 eqPrefs.saveState(stateManager.parametricEq, (0 until stateManager.parametricEq.getBandCount()).toList())
                 stateManager.persistLeftRightIfCse()
                 if (stateManager.isProcessing) {
@@ -307,9 +300,8 @@ class  MainActivity : AppCompatActivity() {
                     android.widget.Toast.LENGTH_SHORT
                 ).show()
             } else {
-                // Flat single-channel preset — CSE off, single EQ.
-                // Reset stale band selection — CSE-on may have left
-                // selectedBandIndex pointing past the end of the new bothEq.
+                // Flat single-channel preset — CSE off. Reset selection: CSE-on may
+                // have left selectedBandIndex past the end of the new bothEq.
                 stateManager.selectedBandIndex = 0
                 val specs = toBandSpecs(profile.filters)
                 stateManager.applyPresetEqs(
@@ -320,14 +312,11 @@ class  MainActivity : AppCompatActivity() {
                 )
                 eqPrefs.saveState(stateManager.parametricEq, (0 until stateManager.parametricEq.getBandCount()).toList())
                 reloadEqFromPrefs()
-                // Force a full active-EQ rebind so the graph / band toggles /
-                // input widgets retarget bothEq when CSE was previously on.
-                // Without this the UI keeps pointing at the old leftEq until
-                // the user manually flips the CSE switch.
+                // Full rebind so graph/toggles/inputs retarget bothEq when CSE was
+                // previously on (otherwise UI stays on the old leftEq).
                 rebindActiveEq()
-                // If DP is running, it was bound to leftEq/rightEq — push the
-                // new bothEq to both channels so audio matches the displayed
-                // EQ immediately instead of after the next interaction.
+                // If DP is running it was bound to leftEq/rightEq — push the new
+                // bothEq to both channels so audio matches the display immediately.
                 if (stateManager.isProcessing) {
                     val (lEq, rEq) = stateManager.getChannelEqs()
                     stateManager.eqService?.let { svc ->
@@ -370,11 +359,9 @@ class  MainActivity : AppCompatActivity() {
     private lateinit var pageSettings: View
 
     // ---- Graph-header button palette (themed) ----
-    // The header buttons sit directly on the EQ graph card, whose
-    // background is colorSurfaceVariant (#1E1E1E dark / #E4E4E4 light).
-    // The light values mirror the dark ones at the same luminance
-    // distance from their background, so both themes keep the same
-    // contrast relationships (see themes.xml for the same convention).
+    // Buttons sit on the graph card (colorSurfaceVariant: #1E1E1E dark / #E4E4E4 light);
+    // light values mirror dark at equal luminance distance so both themes keep the
+    // same contrast relationships (see themes.xml).
     private val isLightUi: Boolean
         get() = (resources.configuration.uiMode and
             android.content.res.Configuration.UI_MODE_NIGHT_MASK) !=
@@ -384,10 +371,8 @@ class  MainActivity : AppCompatActivity() {
     private val graphBtnLitContent: Int get() = if (isLightUi) 0xFF252525.toInt() else 0xFFDDDDDD.toInt()
     private val graphBtnDimStroke: Int get() = if (isLightUi) 0xFFBEBEBE.toInt() else 0xFF444444.toInt()
     private val graphBtnDimContent: Int get() = if (isLightUi) 0xFF555555.toInt() else 0xFF888888.toInt()
-    // Opaque dim-state fill matching EqGraphView's canvas background — the
-    // overlay buttons (ON / edit / spectrum / visibility / presets / channel
-    // side) must OCCLUDE the graph's band/preset badges, not show them
-    // through a transparent center.
+    // Opaque dim fill matching EqGraphView's canvas background — overlay buttons
+    // must OCCLUDE the graph's band/preset badges, not show them through.
     private val graphBtnDimBg: Int get() = if (isLightUi) 0xFFE4E4E4.toInt() else 0xFF1E1E1E.toInt()
     private lateinit var navSettingsButton: ImageButton
     private lateinit var navPresetsButton: ImageButton
@@ -431,23 +416,16 @@ class  MainActivity : AppCompatActivity() {
     private val hzLogMin = kotlin.math.log10(10f)
     private val hzLogMax = kotlin.math.log10(20000f)
 
-    // Listen for EQ stopped from notification "Turn Off" button
-    /** Fires when EqService kicks the DP up from a headless context
-     *  (currently only the Quick Settings tile). Re-syncs the FAB +
-     *  state-manager flag so MainActivity reflects the new state if
-     *  the user is sitting on it when the tile is tapped, and shows
-     *  the same "DynamicsProcessing Start" toast a FAB tap would —
-     *  the stop receiver already does the symmetric "Stop" toast, so
-     *  this completes the pair. */
+    /** Fires when EqService starts DP from a headless context (currently only
+     *  the QS tile). Re-syncs the FAB + isProcessing flag so MainActivity
+     *  reflects the new state if visible. */
     private val eqStartedReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             stateManager.isProcessing = true
             animatePowerFab(true)
             com.bearinmind.equalizer314.ui.BottomNavHelper.updatePowerFab(this@MainActivity, true)
-            // Toast is fired by EqService directly so it surfaces even
-            // when MainActivity isn't alive (QS tile path). Don't
-            // double up here.
-            // Bind so the activity can read DP state going forward.
+            // Toast fired by EqService (surfaces even with MainActivity dead) — don't
+            // double up. Bind so the activity can read DP state going forward.
             if (!stateManager.serviceBound) {
                 try {
                     bindService(
@@ -458,9 +436,8 @@ class  MainActivity : AppCompatActivity() {
                 } catch (_: Throwable) {}
             }
             updateDevicePresetStatus()
-            // TV Mode: DP actually started — sync power to the peer. This
-            // broadcast fires on EVERY start path (FAB, tile, remote), unlike
-            // onProcessingChanged which only fires on service (re)binds.
+            // TV Mode: sync power to peer. Fires on EVERY start path (FAB/tile/remote),
+            // unlike onProcessingChanged which only fires on service (re)binds.
             com.bearinmind.equalizer314.remote.TvRemoteHub.onLocalEqChanged()
         }
     }
@@ -474,10 +451,7 @@ class  MainActivity : AppCompatActivity() {
                 stateManager.serviceBound = false
             }
             animatePowerFab(false)
-            // State commit only — toast is now fired by EqService
-            // (so it surfaces with the app closed too). EXTRA_SILENT_STOP
-            // used to gate the toast here; now that the toast lives on
-            // the service side, both branches do the same thing.
+            // State commit only — toast fired by EqService so it surfaces with the app closed.
             eqPrefs.savePowerState(false)
             com.bearinmind.equalizer314.ui.BottomNavHelper.updatePowerFab(this@MainActivity, false)
             updateDevicePresetStatus()
@@ -486,9 +460,8 @@ class  MainActivity : AppCompatActivity() {
         }
     }
 
-    /** Visual echo of a settings-triggered DP recycle (interleave toggle /
-     *  DP Latency Window): the power FAB dips off then springs back on,
-     *  mirroring the engine rebuild the service just performed. */
+    /** Visual echo of a settings-triggered DP recycle (interleave toggle / DP
+     *  Latency Window): the power FAB dips off then springs back on. */
     private val dpRecycledReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             animatePowerFab(false)
@@ -502,34 +475,21 @@ class  MainActivity : AppCompatActivity() {
         }
     }
 
-    /** Refreshes the device/preset status line above the graph in
-     *  response to route changes and preset-name updates. Listens for:
-     *   - ACTION_ROUTE_PRESET_APPLIED (RouteSwitchCoordinator) when a
-     *     device-bound preset auto-applies.
-     *   - ACTION_NOTIFICATION_REFRESH (sent by MainActivity itself
-     *     after the user taps a preset row, but the foreground service
-     *     also re-broadcasts so other listeners stay in sync).
-     *   - ACTION_EQ_STARTED / ACTION_EQ_STOPPED — already handled by
-     *     their dedicated receivers which also call us.
-     */
+    /** Refreshes the device/preset status line on route/preset changes:
+     *  ACTION_ROUTE_PRESET_APPLIED (device-bound preset auto-applies) and
+     *  ACTION_NOTIFICATION_REFRESH (also re-broadcast by the service);
+     *  EQ_STARTED/STOPPED receivers call updateDevicePresetStatus directly. */
     private val statusRefreshReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             updateDevicePresetStatus()
         }
     }
 
-    /** Refresh the small device/preset status line above the EQ graph.
-     *
-     *  Always visible — shows what's loaded even when DP is off, so
-     *  the user can see "if I turn this on, here's what will apply."
-     *
-     *  Format: "<preset> · <device>"
-     *  - <preset> is the saved-custom-preset name when one is loaded,
-     *    else "App Set" (matches EqService.buildNotification's
-     *    display rule). For Session-based routing, replaced with
-     *    "Session-based" since no global preset is active.
-     *  - <device> is the cached output route label. Omitted when not
-     *    yet known (service unbound / no route change has fired). */
+    /** Refresh the device/preset status line above the EQ graph. Always visible
+     *  (shows what will apply even while DP is off). Format "<preset> · <device>":
+     *  preset = saved-custom-preset name, else "App Set" (matches
+     *  EqService.buildNotification); Session-based routing shows "Session-based".
+     *  Device = cached route label, omitted until a route is known. */
     private fun updateDevicePresetStatus() {
         if (!::devicePresetStatusText.isInitialized) return
         val routingMode = eqPrefs.getAudioRoutingMode()
@@ -538,9 +498,8 @@ class  MainActivity : AppCompatActivity() {
         val isRealPreset = activePresetName.isNotBlank() &&
             customPresetsPrefs.contains("preset_$activePresetName")
         val presetDisplay = if (isRealPreset) activePresetName else "none"
-        // Same three-piece logic as EqService.buildNotification's
-        // BigText, but compact onto a single chip line below the
-        // band-info card:  Mode · Preset · Device
+        // Same three-piece logic as EqService.buildNotification's BigText,
+        // compacted to one chip line:  Mode · Preset · Device
         val appPreset = stateManager.eqService?.sessionEffects?.getCurrentDrivingPreset()
         val deviceKey = EqService.staticLastDeviceKey
         val deviceBinding = deviceKey?.let { eqPrefs.getDeviceBinding(it) }
@@ -556,11 +515,8 @@ class  MainActivity : AppCompatActivity() {
             routingMode == 1 -> appPreset ?: "none"
             else -> presetDisplay
         }
-        // Use EqService's static cache so we still get the current
-        // device label after DP is toggled off (MainActivity unbinds
-        // from the service in stopProcessing, but the foreground
-        // service stays alive and its route monitor keeps updating
-        // the static).
+        // EqService's static cache keeps the device label after DP off — MainActivity
+        // unbinds in stopProcessing, but the service's route monitor keeps updating it.
         val deviceLabel = EqService.staticLastDeviceLabel
         devicePresetStatusText.text = buildString {
             append(mode).append(" · ").append(presetForDisplay)
@@ -584,21 +540,12 @@ class  MainActivity : AppCompatActivity() {
         eqPrefs = EqPreferencesManager(this)
         stateManager = EqStateManager(this, eqPrefs)
 
-        // On fresh app launch, decide what to do about DP power state.
-        // Three cases:
-        //   1. Service is already running (QS tile or boot receiver
-        //      started it while MainActivity was dead) — keep the
-        //      persisted pref aligned with that.
-        //   2. Service isn't running but the persisted pref says it
-        //      should be on (last session ended with DP on; user
-        //      rebooted on an OEM that strips BOOT_COMPLETED, or
-        //      force-stopped the app). Auto-start the service —
-        //      ACTION_AUTO_START is idempotent.
-        //   3. Truly off — leave the pref at false.
-        // The earlier behaviour (always overwriting with the live
-        // service flag) wiped the persisted `powerOn=true` on every
-        // cold launch after a reboot, which made the EQ appear to
-        // "turn off by itself" (issue #28).
+        // Fresh-launch DP power reconciliation: (1) service already running (QS tile /
+        // boot receiver) → align pref true; (2) service off but pref powerOn=true
+        // (OEM stripped BOOT_COMPLETED, force-stop) → auto-start via idempotent
+        // ACTION_AUTO_START; (3) truly off → pref false. Never blindly overwrite the
+        // pref with the live flag — that wiped powerOn=true on cold launch after a
+        // reboot, making the EQ "turn off by itself" (issue #28).
         if (savedInstanceState == null) {
             val dpAlreadyRunning = EqService.isDpRunning
             val persistedPowerOn = eqPrefs.getPowerState()
@@ -618,9 +565,8 @@ class  MainActivity : AppCompatActivity() {
             stateManager.pendingStartEq = false
             // Also re-lock the Experimental settings on every fresh launch
             eqPrefs.saveExperimentalUnlocked(false)
-            // Force the experimental DP band count to its safe default on a
-            // fresh launch. (Auto-gain is no longer forced off here — it's a
-            // real, on-by-default feature now; see the Auto-Gain settings card.)
+            // Force experimental DP band count to safe default 128 on fresh launch.
+            // (Auto-gain is a real, on-by-default feature — not forced off here.)
             eqPrefs.saveDpBandCount(128)
         }
 
@@ -630,15 +576,12 @@ class  MainActivity : AppCompatActivity() {
         syncPreampUI()
         setupListeners()
 
-        // TV Mode (issues #35/#55): register this UI as the remote link's
-        // state provider/applier, hook EQ pushes for live sync, re-arm a
-        // persisted Server mode after process death, and flush any state
-        // that arrived before the UI existed.
+        // TV Mode (issues #35/#55): register this UI as remote state provider/applier,
+        // hook EQ pushes for live sync, re-arm persisted Server mode after process
+        // death, flush state that arrived before the UI existed.
         com.bearinmind.equalizer314.remote.TvRemoteHub.stateProvider = {
-            // Preset JSON + a nav block so the peer's screen can shadow this
-            // one (screen-state follow). Nav lives ONLY in the remote link —
-            // saved preset files never see it (they call
-            // buildCurrentPresetJson directly).
+            // Preset JSON + nav block for screen-state follow. Nav lives ONLY in the
+            // remote link — saved preset files call buildCurrentPresetJson directly.
             val state = org.json.JSONObject(buildCurrentPresetJson())
             state.put("power", stateManager.isProcessing)
             state.put("nav", org.json.JSONObject().apply {
@@ -715,40 +658,30 @@ class  MainActivity : AppCompatActivity() {
         // Ensure rows are properly ordered after views are laid out
         pageEq.post { reorderToggleRows(animate = false) }
 
-        // Bulletproof graph-header positioning: reposition whenever the
-        // graph's width actually changes. The one-shot post{}/doOnLayout
-        // hooks can fire at a transient width during a theme-toggle
-        // recreate (the window settles to its final width a layout pass
-        // or two later), leaving the buttons computed for the wrong
-        // width. This persistent listener catches that final settle. The
-        // `w != oldW` guard skips same-width passes so setting the
-        // buttons' layoutParams here can't loop.
+        // Reposition header buttons whenever the graph width actually changes:
+        // one-shot post{}/doOnLayout can fire at a transient width during a
+        // theme-toggle recreate; this persistent listener catches the final settle.
+        // `w != oldW` guard prevents layoutParams writes from looping.
         eqGraphView.addOnLayoutChangeListener { _, left, _, right, _, oldLeft, _, oldRight, _ ->
             val w = right - left
             val oldW = oldRight - oldLeft
             if (w > 0 && w != oldW && stateManager.currentEqUiMode != EqUiMode.SIMPLE) {
-                // Defer out of the layout traversal: repositioning calls
-                // requestLayout on the buttons, which mid-pass can apply
-                // against stale measurements. post{} runs it after this
-                // layout completes, reading the settled final width.
+                // Defer out of the layout traversal — repositioning calls requestLayout,
+                // which mid-pass can apply against stale measurements.
                 eqGraphView.post { relayoutGraphHeaderButtons() }
             }
         }
 
-        // Restore the Settings page across activity recreation (e.g. the
-        // light/dark theme toggle calls setDefaultNightMode, which
-        // recreates the activity) so flipping the theme doesn't dump the
-        // user back on the EQ page.
+        // Restore the Settings page across recreation (theme toggle calls
+        // setDefaultNightMode, which recreates the activity).
         if (savedInstanceState?.getBoolean("onSettingsPage", false) == true) {
             pageEq.visibility = View.GONE
             pageSettings.visibility = View.VISIBLE
             updateBottomBarHighlight(isEqPage = false)
         }
 
-        // If the global DP is already running when the activity opens
-        // (e.g. user toggled it on via the QS tile while the activity
-        // was killed), reflect that in the UI and bind to the existing
-        // foreground service so the FAB / EQ updates work as normal.
+        // DP already running at open (e.g. QS tile toggled while activity was
+        // killed): reflect in UI and bind to the existing foreground service.
         if (EqService.isDpRunning) {
             stateManager.isProcessing = true
             animatePowerFab(true)
@@ -935,11 +868,9 @@ class  MainActivity : AppCompatActivity() {
             pageEq.visibility = View.VISIBLE
             pageSettings.visibility = View.GONE
             updateBottomBarHighlight(isEqPage = true)
-            // The graph was GONE (width 0) while Settings was showing, so
-            // the header buttons couldn't be positioned. Re-run once the
-            // graph is laid out with its real width — this is the path
-            // that fixes warped buttons after a theme toggle (which leaves
-            // the user on the Settings page across the recreate).
+            // Graph was GONE (width 0) while Settings showed, so header buttons
+            // weren't positioned. Re-run at real width — fixes warped buttons
+            // after a theme toggle (user stays on Settings across the recreate).
             if (stateManager.currentEqUiMode != EqUiMode.SIMPLE) {
                 eqGraphView.doOnLayout { eqGraphView.post { relayoutGraphHeaderButtons() } }
             }
@@ -976,14 +907,10 @@ class  MainActivity : AppCompatActivity() {
         val channelBothBtn = findViewById<com.google.android.material.button.MaterialButton>(R.id.channelBothButton)
         val vizDensity = resources.displayMetrics.density
         val gapPx = (2 * vizDensity).toInt()
-        // post{}, NOT doOnLayout{}: these button offsets are computed from
-        // eqGraphView.width, so they must run after the layout pass has
-        // fully settled to the final width. doOnLayout is a one-shot that
-        // fires on the FIRST layout pass — during a theme-toggle recreate
-        // that pass happens at a transient (mid-transition / pre-inset)
-        // width, which gets baked into every offset and warps the buttons.
-        // The Simple-mode GONE→VISIBLE bunching is handled separately by
-        // the re-layout block in switchEqUiMode (which has its own guard).
+        // post{}, NOT doOnLayout{}: offsets derive from eqGraphView.width, and
+        // doOnLayout's one-shot FIRST pass can land on a transient (mid-transition /
+        // pre-inset) width during a theme-toggle recreate, warping every button.
+        // Simple-mode GONE→VISIBLE bunching is handled in switchEqUiMode.
         eqGraphView.post {
             val viewWidth = eqGraphView.width
             if (viewWidth <= 0) return@post
@@ -1077,10 +1004,8 @@ class  MainActivity : AppCompatActivity() {
             bandPtsBtn.minimumWidth = 0; bandPtsBtn.minimumHeight = 0
             bandPtsBtn.setPadding(0, 0, 0, 0)
 
-            // View-options popout buttons (revealed by the eye): the
-            // ON/OFF visibility toggle sits below the eye, the per-band
-            // fill toggle sits below the save button — mirroring how
-            // undo/redo sit below reset/edit on the right side.
+            // View-options popout (revealed by the eye): ON/OFF toggle below the eye,
+            // per-band fill toggle below save — mirrors undo/redo below reset/edit.
             val onOffBtn0 = findViewById<com.google.android.material.button.MaterialButton>(R.id.bandPointsOnOffBtn)
             val onOffLp = onOffBtn0.layoutParams as android.widget.FrameLayout.LayoutParams
             onOffLp.width = specWidth
@@ -1127,17 +1052,9 @@ class  MainActivity : AppCompatActivity() {
             altRouteBtn.minimumWidth = 0; altRouteBtn.minimumHeight = 0
             altRouteBtn.setPadding(0, 0, 0, 0)
 
-            // Mini L/R badge overlaid on the top-right of altRouteButton.
-            // "Correct" offsets tuned by hand against the Samsung Z Flip7 UI —
-            // if the user asks to revisit L/R badge positioning, these are the
-            // baseline values:
-            //   leftMargin = altRouteLeft + specWidth - badgeWidth - 6dp
-            //   topMargin  = btnTop + 5dp
-            //   translationZ = 16dp   (+ bringToFront) so it layers above the
-            //                         MaterialButton's icon drawing layer.
-            // Increasing the leftMargin dp-offset moves the badge LEFT (away
-            // from the button's right edge); decreasing it moves the badge
-            // RIGHT. Same direction convention used in prior tweaks.
+            // Mini L/R badge over altRouteButton's top-right; translationZ = 16dp
+            // (+ bringToFront) to layer above the MaterialButton icon. Hand-tuned
+            // baseline offsets documented on repositionChannelBadge().
             val badge = findViewById<android.widget.TextView>(R.id.altRouteChannelBadge)
             badgeAnchorAltRouteLeft = altRouteLeft
             badgeAnchorSpecWidth = specWidth
@@ -1208,9 +1125,8 @@ class  MainActivity : AppCompatActivity() {
             channelPopoutOpen = !channelPopoutOpen
             if (channelPopoutOpen) {
                 val offsetY = -(altRouteBtn.height.toFloat() + gapPx)
-                // L and R are dimmed when Channel Side EQ is off, bright when on.
-                // Full alpha always — inactive state is conveyed by the dim
-                // color palette; translucency let graph badges bleed through.
+                // L/R dim when CSE off, bright when on. Full alpha always — dim palette
+                // conveys inactive; translucency let graph badges bleed through.
                 val lrAlpha = 1.0f
                 // Paint pressed/outlined styles first so the buttons fade in
                 // already reflecting the active channel.
@@ -1250,14 +1166,12 @@ class  MainActivity : AppCompatActivity() {
             }
         }
 
-        // L / R buttons switch which channel the main graph is editing.
-        // Only effective while Channel Side EQ is enabled; dimmed and no-op
-        // otherwise. Tapping the currently-active channel is a no-op too.
+        // L/R switch which channel the graph edits; dimmed no-op unless CSE is
+        // enabled. Tapping the already-active channel is a no-op too.
         channelLBtn.setOnClickListener {
             if (!eqPrefs.getChannelSideEqEnabled()) return@setOnClickListener
-            // The Both view parks activeChannel on LEFT, so "already on L"
-            // must not short-circuit while it's active — tapping L there
-            // means "leave the Both view and edit L alone".
+            // Both view parks activeChannel on LEFT — don't short-circuit while it's
+            // active; tapping L there means "leave Both view and edit L alone".
             if (stateManager.activeChannel == EqStateManager.ActiveChannel.LEFT &&
                 !stateManager.bothViewActive) return@setOnClickListener
             stateManager.exitBothView()
@@ -1272,10 +1186,8 @@ class  MainActivity : AppCompatActivity() {
             stateManager.setActiveChannel(EqStateManager.ActiveChannel.RIGHT)
             rebindActiveEq()
         }
-        // "Both" — switch the graph to the Both edit view: it shows the left
-        // curve and every edit is applied to BOTH channels. Tap L or R (or
-        // Both again) to leave. Per-band tethering still lives in the band
-        // popup (double-tap the selected band).
+        // "Both" view: shows the left curve, edits apply to BOTH channels. Tap L/R/Both
+        // to leave. Per-band tethering lives in the band popup (double-tap selected band).
         channelBothBtn.setOnClickListener {
             if (!eqPrefs.getChannelSideEqEnabled()) return@setOnClickListener
             if (stateManager.bothViewActive) stateManager.exitBothView()
@@ -1284,9 +1196,8 @@ class  MainActivity : AppCompatActivity() {
             paintChannelButtonStyles()
         }
 
-        // Power button in the channel popout: toggles Channel Side EQ on/off
-        // directly. (Replaces the old settings-gear navigation — the Channel
-        // Side Options screen entry was retired, see LegacyFeatures.kt.)
+        // Power button in the channel popout: toggles Channel Side EQ
+        // directly (settings-gear navigation retired — LegacyFeatures.kt).
         settingsGearBtn.setOnClickListener {
             val on = !eqPrefs.getChannelSideEqEnabled()
             stateManager.setChannelSideEqEnabled(on)
@@ -1464,10 +1375,8 @@ class  MainActivity : AppCompatActivity() {
                     setPadding(hPad, vPad, hPad, vPad)
                 }
 
-                // Mini EQ curve thumbnail. For Channel-Side-EQ presets we
-                // stack two mini graphs (L on top, R on bottom) so the
-                // per-channel split is legible at a glance. Single-curve
-                // presets render one grey curve as before.
+                // Mini EQ curve thumbnail. CSE presets stack two mini graphs (L top,
+                // R bottom); single-curve presets render one grey curve.
                 val thumbW = (48 * density).toInt()
                 val thumbH = (24 * density).toInt()
                 val thumbnail = object : android.view.View(this) {
@@ -1517,18 +1426,12 @@ class  MainActivity : AppCompatActivity() {
                             val cseOn = obj.optBoolean("channelSideEqEnabled", false)
                             val curveColor = 0xFFAAAAAA.toInt()
                             if (cseOn && obj.has("leftBands") && obj.has("rightBands")) {
-                                // Stacked: L on top, R on bottom, separated
-                                // by a divider line and a 2px gap. Both curves
-                                // use the same grey as the single-curve case;
-                                // a small "L" / "R" label sits at the left of
-                                // each row so the two graphs read as "two
-                                // labeled graphs" rather than one mashed curve.
+                                // Stacked L/R with divider + 2px gap; same grey as single-curve.
+                                // "L"/"R" labels make it read as two graphs, not one mashed curve.
                                 val labelCol = 9f * density
                                 val gap = 2f * density
                                 val halfH = (h - gap) / 2f
-                                // Match the "N filters" text next to each
-                                // preset row: 10 sp, medium grey (#888), not
-                                // bold.
+                                // Matches the "N filters" text: 10sp, medium grey (#888), not bold.
                                 val labelPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
                                     color = 0xFF888888.toInt()
                                     textSize = 10f * resources.displayMetrics.scaledDensity
@@ -1569,16 +1472,12 @@ class  MainActivity : AppCompatActivity() {
                     layoutParams = android.widget.LinearLayout.LayoutParams(thumbW, thumbH)
                 }
 
-                // Left side: preset name stacked over a small preamp
-                // subtitle ("+8.0 dB" / "-7.0 dB" / "0.0 dB"). Pulled
-                // out of the preset JSON's `preamp` field, defaulting
-                // to 0.0 for legacy presets that pre-date the preamp
-                // save. Hidden entirely if the JSON couldn't be parsed.
+                // Left: preset name over a preamp subtitle ("+8.0 dB" etc.) from the
+                // JSON `preamp` field; 0.0 default for legacy presets, hidden on parse failure.
                 val nameText = android.widget.TextView(this).apply {
                     text = name
-                    // Preset rows sit on the light page surface, so the
-                    // name must be dark in light mode (the old #E2E2E2 was
-                    // near-invisible there). Dark stays light in dark mode.
+                    // Rows sit on the light page surface — name must be dark in light
+                    // mode (#E2E2E2 was near-invisible there).
                     setTextColor(if (isLightUi) 0xFF202020.toInt() else 0xFFE2E2E2.toInt())
                     textSize = 14f
                     isSingleLine = true
@@ -1751,9 +1650,8 @@ class  MainActivity : AppCompatActivity() {
                         for (i in 0 until bands.length()) {
                             val b = bands.getJSONObject(i)
                             val ft = b.getString("filterType")
-                            // Map our FilterType to APO's token + which optional
-                            // fields the line needs. BP / NO / AP / LP / HP have
-                            // no Gain; 1st-order LS / HS / LP / HP have no Q.
+                            // FilterType → APO token. BP/NO/AP/LP/HP have no Gain;
+                            // 1st-order LS/HS/LP/HP have no Q.
                             val apoType: String
                             val hasGain: Boolean
                             val hasQ: Boolean
@@ -1804,9 +1702,7 @@ class  MainActivity : AppCompatActivity() {
                     presetExportLauncher.launch(intent)
                 }
 
-                // Overwrite button — re-saves the CURRENT EQ into this
-                // preset (handy for tweaking a loaded preset and saving the
-                // change back without making a new one / deleting the old).
+                // Overwrite button — re-saves the CURRENT EQ into this preset.
                 val overwriteBtn = com.google.android.material.button.MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
                     layoutParams = android.widget.LinearLayout.LayoutParams(
                         (36 * density).toInt(), (36 * density).toInt()).apply {
@@ -1827,9 +1723,7 @@ class  MainActivity : AppCompatActivity() {
                 }
                 overwriteBtn.setOnClickListener {
                     val d = resources.displayMetrics.density
-                    // Styled identically to the "+" Save Custom Preset
-                    // dialog, but pre-filled with this preset's name and
-                    // titled / labelled for overwrite.
+                    // Same style as the "+" save dialog, pre-filled with this preset's name.
                     val dlgView = android.widget.LinearLayout(this).apply {
                         orientation = android.widget.LinearLayout.VERTICAL
                         setPadding((24 * d).toInt(), (20 * d).toInt(), (24 * d).toInt(), (16 * d).toInt())
@@ -1910,9 +1804,7 @@ class  MainActivity : AppCompatActivity() {
                     dlgCancelBtn.setOnClickListener { dlg.dismiss() }
                     dlgOkBtn.setOnClickListener {
                         val newName = dlgInput.text.toString().trim().ifEmpty { name }
-                        // Write the current EQ under the (possibly renamed)
-                        // preset. Same name → in-place overwrite; renamed →
-                        // saved under the new name too (added to the set).
+                        // Same name → in-place overwrite; renamed → saved under new name too.
                         prefs.edit()
                             .putString("preset_$newName", buildCurrentPresetJson())
                             .putStringSet("preset_names", (presetNames.toMutableSet() + newName))
@@ -1964,40 +1856,25 @@ class  MainActivity : AppCompatActivity() {
                     stateManager.persistLeftRightIfCse()
                     stateManager.initBandSlots()
                     bandToggleManager.setupToggles()
-                    // Apply the loaded preset's preamp. Legacy presets that
-                    // pre-date the preamp field load as 0.0 — matching the
-                    // "Preamp: 0.0" the picker row shows for them.
+                    // Legacy presets without a preamp field load as 0.0, matching the
+                    // picker row's "Preamp: 0.0".
                     stateManager.preampGainDb =
                         if (obj.has("preamp")) obj.getDouble("preamp").toFloat() else 0f
                     stateManager.eqPrefs.savePreampGain(stateManager.preampGainDb)
-                    // Sync the preamp slider + text to the loaded value. The
-                    // load path previously set only the in-memory/pref value,
-                    // so the slider kept showing the old preamp (and the DP
-                    // kept applying it — see the pushEqUpdate() change below).
+                    // Sync preamp slider/text to the loaded value; pref alone leaves
+                    // stale UI + stale DP preamp.
                     preampSlider.value = stateManager.preampGainDb.coerceIn(-12f, 12f)
                     preampText.setText(String.format("%.1f", stateManager.preampGainDb))
-                    // Persist the loaded preset's name so the foreground
-                    // notification, anything else that reads
-                    // getPresetName(), and the next save-preset prompt
-                    // all reflect what's actually loaded. Without this
-                    // the name pref keeps whatever was last written
-                    // (e.g. "AutoEQ" from an earlier import) even
-                    // though the user just loaded a different preset.
+                    // Persist the loaded preset's name so the notification, getPresetName()
+                    // readers, and the next save prompt reflect what's loaded (otherwise the
+                    // pref keeps e.g. "AutoEQ" from an earlier import).
                     stateManager.eqPrefs.savePresetName(name)
-                    // Sync the top-of-screen preset dropdown's text to
-                    // the loaded preset too. Required because onPause
-                    // re-writes `savePresetName(presetDropdown.text)`
-                    // when MainActivity backgrounds — if the dropdown
-                    // still showed the previous name, onPause would
-                    // silently clobber the pref we just set.
+                    // Sync the dropdown too — onPause re-writes
+                    // savePresetName(presetDropdown.text) and would clobber the pref.
                     presetDropdown.setText(name, false)
-                    // Broadcast a refresh so EqService rebuilds the
-                    // notification immediately, regardless of whether
-                    // DP is currently on. When DP is off, MainActivity
-                    // has unbound from the service (see
-                    // EqStateManager.stopProcessing) — a binder call
-                    // would no-op. The broadcast still reaches the
-                    // alive foreground service via its receiver.
+                    // Broadcast so EqService rebuilds the notification even with DP off:
+                    // MainActivity is unbound then (a binder call would no-op) but the
+                    // alive foreground service still gets the broadcast.
                     sendBroadcast(
                         Intent(com.bearinmind.equalizer314.audio.EqService.ACTION_NOTIFICATION_REFRESH)
                             .setPackage(packageName)
@@ -2007,11 +1884,8 @@ class  MainActivity : AppCompatActivity() {
                             svc.dynamicsManager.stop()
                             svc.dynamicsManager.start(stateManager.parametricEq)
                         }
-                        // Propagate the loaded preset's preamp (+ current
-                        // balance / channel gains) into DP's input-gain stage.
-                        // The old manual updateEqPerChannel path never copied
-                        // preampGainDb into the DynamicsProcessingManager, so
-                        // the preamp shown on the preset never actually applied.
+                        // Propagate preamp (+ balance / channel gains) into DP's input-gain
+                        // stage — updateEqPerChannel alone never copies preampGainDb.
                         stateManager.pushEqUpdate()
                     }
                     refreshChannelPopoutDim()
@@ -2033,11 +1907,9 @@ class  MainActivity : AppCompatActivity() {
             }
         }
 
-        // Bound the preset picker to the viewport space below the graph so
-        // it scrolls internally instead of growing the page (which made
-        // the whole screen scroll past the graph). Measured after layout
-        // via post{}; the page is reset to the top first so the picker's
-        // computed top is accurate.
+        // Bound the picker to the viewport below the graph so it scrolls internally
+        // instead of growing the page. Measured post-layout; page reset to top first
+        // so the computed top is accurate.
         fun boundPresetPickerHeight() {
             pageEq.scrollTo(0, 0)
             presetPickerScroll.post {
@@ -2083,10 +1955,8 @@ class  MainActivity : AppCompatActivity() {
                 saveBtn.iconTint = android.content.res.ColorStateList.valueOf(graphBtnDimContent)
             }
         }
-        // Eye button: opens the view-options popout (ON/OFF visibility
-        // toggle + per-band fill toggle), animated the same way the
-        // edit button reveals reset/undo/redo. The dots-visibility
-        // toggle itself moved onto the popped-out ON/OFF button.
+        // Eye button: opens the view-options popout (ON/OFF visibility + per-band
+        // fill toggles), animated like the edit button's reset/undo/redo reveal.
         var bandPointsVisible = true
         var bandCurvesVisible = false
         var viewOptionsOpen = false
@@ -2260,11 +2130,9 @@ class  MainActivity : AppCompatActivity() {
                 resetBtn.visibility = android.view.View.VISIBLE
                 undoBtn.visibility = android.view.View.VISIBLE
                 redoBtn.visibility = android.view.View.VISIBLE
-                // Reset shares the slot with the EQ ON/OFF toggle (left of
-                // Edit). Bring the edit-mode buttons to the front, AND fade
-                // the ON/OFF toggle out — reset's background is transparent,
-                // so without fading the toggle's text would show through.
-                // The toggle fades back in when edit mode closes.
+                // Reset shares the EQ ON/OFF toggle's slot (left of Edit). Fade the
+                // toggle out — reset's transparent background would show its text
+                // through. It fades back in when edit mode closes.
                 resetBtn.bringToFront()
                 undoBtn.bringToFront()
                 redoBtn.bringToFront()
@@ -2441,21 +2309,18 @@ class  MainActivity : AppCompatActivity() {
         }
 
         eqGraphView.onBandChangedListener = { bandIndex, _, _ ->
-            // Throttle DP writes during drag — each ACTION_MOVE would otherwise
-            // trigger a full Pre-EQ rewrite on the audio thread. The drag-end
-            // listener flushes the final value.
+            // Throttle DP writes during drag — each ACTION_MOVE would trigger a full
+            // Pre-EQ rewrite on the audio thread; drag-end flushes the final value.
             stateManager.pushEqUpdateThrottled()
-            // Mirror "Both" band edits to the other channel and redraw its
-            // dotted ghost curve LIVE during the drag, not just on release
-            // (issue #53). Just a param copy — cheap enough per move.
+            // Mirror "Both" edits to the other channel and redraw its ghost curve LIVE
+            // during the drag (issue #53). Just a param copy — cheap per move.
             if (stateManager.activeChannel != EqStateManager.ActiveChannel.BOTH) {
                 stateManager.syncBothBands()
                 eqGraphView.invalidate()
             }
             updateBandInputs(bandIndex)
-            // NOTE: don't rebuild the whole table on every drag move — it
-            // recreates all rows/inputs and makes the graph drag stutter. The
-            // table is refreshed once on drag-end instead.
+            // NOTE: don't rebuild the table per drag move — recreating all rows/inputs
+            // makes the drag stutter; it's refreshed once on drag-end.
             if (stateManager.currentEqUiMode == EqUiMode.GRAPHIC) graphicController.updateSliderValues()
         }
 
@@ -2499,11 +2364,8 @@ class  MainActivity : AppCompatActivity() {
         // Color swatches
         setupColorSwatches()
 
-        // EQ mode selector
-        // The three "advanced" modes clear the Simple flag; the Simple
-        // card sets it. Persisting here mirrors the experimental
-        // settings switch so the choice survives a restart and the two
-        // entry points stay consistent.
+        // EQ mode selector: advanced modes clear the Simple flag, Simple sets it.
+        // Persisted so the choice survives restart and matches the settings switch.
         modeParametricBtn.setOnClickListener { eqPrefs.saveSimpleEqEnabled(false); switchEqUiMode(EqUiMode.PARAMETRIC) }
         modeGraphicBtn.setOnClickListener { eqPrefs.saveSimpleEqEnabled(false); switchEqUiMode(EqUiMode.GRAPHIC) }
         modeTableBtn.setOnClickListener { eqPrefs.saveSimpleEqEnabled(false); switchEqUiMode(EqUiMode.TABLE) }
@@ -2515,15 +2377,10 @@ class  MainActivity : AppCompatActivity() {
 
     // ---- Settings ----
 
-    /** Serializes the current EQ state (bands + preamp + Channel-Side-EQ)
-     *  to a preset JSON string. Shared by the "+" save-new flow and the
-     *  per-row overwrite, so a saved and an overwritten preset are byte-for
-     *  byte the same format. */
-    /** Apply a preset-JSON state received over TV Mode (issues #35/#55).
-     *  Mirrors the preset-load path minus the picker UI: bands (incl. CSE
-     *  L/R fork), preamp, graph/toggle refresh, live DP push. Runs under
-     *  TvRemoteHub's applyingRemote guard so the pushEqUpdate inside can't
-     *  echo the state straight back to the peer. */
+    /** Apply a preset-JSON state received over TV Mode (issues #35/#55). Mirrors
+     *  the preset-load path minus the picker UI: bands (incl. CSE L/R fork), preamp,
+     *  graph/toggle refresh, live DP push. Runs under TvRemoteHub's applyingRemote
+     *  guard so the inner pushEqUpdate can't echo the state back to the peer. */
     private fun applyRemotePresetJson(obj: org.json.JSONObject) {
         fun parseBands(arr: org.json.JSONArray): List<com.bearinmind.equalizer314.state.EqStateManager.BandSpec> {
             val out = mutableListOf<com.bearinmind.equalizer314.state.EqStateManager.BandSpec>()
@@ -2546,11 +2403,9 @@ class  MainActivity : AppCompatActivity() {
         val leftBands = if (obj.has("leftBands")) parseBands(obj.getJSONArray("leftBands")) else bothBands
         val rightBands = if (obj.has("rightBands")) parseBands(obj.getJSONArray("rightBands")) else bothBands
 
-        // Structure signature: band count + filter types + enabled flags.
-        // Value-only syncs (a remote band drag = gain/freq/Q changes) must
-        // NOT rebuild the toggle rows — rebuilding them ~7×/s mid-animation
-        // is what squished the extra band row. Only rebuild when the band
-        // STRUCTURE actually changed.
+        // Structure signature (band count + filter types + enabled flags): value-only
+        // syncs (remote drag = gain/freq/Q) must NOT rebuild toggle rows — rebuilding
+        // ~7×/s mid-animation squished the extra band row.
         fun sigOfSpecs(bands: List<com.bearinmind.equalizer314.state.EqStateManager.BandSpec>) =
             bands.joinToString(";") { "${it.filterType.name}${if (it.enabled) '1' else '0'}" }
         fun sigOfEq(eq: com.bearinmind.equalizer314.dsp.ParametricEqualizer) =
@@ -2593,10 +2448,8 @@ class  MainActivity : AppCompatActivity() {
             }
         }
         obj.optJSONObject("nav")?.let { applyRemoteNav(it) }
-        // Remote changes never passed through the local preset/power UI
-        // paths that normally poke the notification — refresh it explicitly
-        // so the Preset / state lines don't sit stale until the next
-        // volume tick.
+        // Remote changes bypass the local UI paths that poke the notification —
+        // refresh explicitly so its lines don't sit stale until the next volume tick.
         sendBroadcast(
             Intent(com.bearinmind.equalizer314.audio.EqService.ACTION_NOTIFICATION_REFRESH)
                 .setPackage(packageName)
@@ -2609,9 +2462,8 @@ class  MainActivity : AppCompatActivity() {
         }
     }
 
-    /** Screen-state follow (TV Mode): shadow the remote's navigation —
-     *  surface the EQ screen, match its UI mode, channel view, and selected
-     *  band. One-directional by design: the remote drives, this device
+    /** Screen-state follow (TV Mode): shadow the remote's nav — screen, UI mode,
+     *  channel view, selected band. One-directional: remote drives, this device
      *  follows. Transient UI (dialogs, scroll, mid-drag) is not mirrored. */
     private var lastRemoteNav: String? = null
 
@@ -2640,9 +2492,8 @@ class  MainActivity : AppCompatActivity() {
         val navStr = nav.toString()
         val changed = navStr != lastRemoteNav
         lastRemoteNav = navStr
-        // Follow the remote's screen: MBC, Limiter, settings pages — any
-        // whitelisted activity. Only acts when the nav actually changed and
-        // we're not already on that screen.
+        // Follow the remote's screen (any whitelisted activity); only acts when nav
+        // changed and we're not already there.
         val targetScreen = nav.optString("screen", "")
         if (changed && targetScreen.isNotEmpty() &&
             targetScreen != com.bearinmind.equalizer314.remote.TvRemoteHub.topScreen) {
@@ -2727,8 +2578,7 @@ class  MainActivity : AppCompatActivity() {
     }
 
     private fun updateAutoEqStatus() {
-        // The AutoEQ status card moved to PresetsConversionsActivity, so on
-        // the main Settings page this view no longer exists — bail safely.
+        // AutoEQ status card lives in PresetsConversionsActivity — view may not exist here.
         val statusText = findViewById<TextView>(R.id.autoEqStatusText) ?: return
         val name = eqPrefs.getAutoEqName()
         if (!name.isNullOrBlank()) {
@@ -2779,10 +2629,8 @@ class  MainActivity : AppCompatActivity() {
     }
 
     private fun setupSettingsListeners() {
-        // Light/dark theme toggle (settings page). Switch ON = light.
-        // setDefaultNightMode recreates all live activities, which
-        // re-inflates everything in the new palette; EqApp re-applies
-        // the saved choice on the next cold start.
+        // Theme toggle: switch ON = light. setDefaultNightMode recreates all live
+        // activities; EqApp re-applies the saved choice on the next cold start.
         val themeSwitch = findViewById<com.google.android.material.materialswitch.MaterialSwitch>(R.id.themeSwitch)
         themeSwitch.isChecked = eqPrefs.getLightTheme()
         themeSwitch.setOnCheckedChangeListener { _, isChecked ->
@@ -2796,10 +2644,8 @@ class  MainActivity : AppCompatActivity() {
         // Channel Side Options settings card retired — CSE now toggles via the
         // power button in the graph's channel popout. See LegacyFeatures.kt.
 
-        // Presets & Conversions — opens the sub-screen grouping AutoEQ &
-        // Presets, Generate Custom EQ, and Convert to APO. RESULT_OK comes
-        // back when an AutoEQ/Target preset was applied there, so reload
-        // the EQ from prefs (same flow the loose cards used).
+        // Presets & Conversions sub-screen (AutoEQ & Presets / Generate Custom EQ /
+        // Convert to APO); RESULT_OK = preset applied there → reload EQ from prefs.
         findViewById<View>(R.id.presetsConversionsCard).setOnClickListener {
             presetsConversionsLauncher.launch(Intent(this, PresetsConversionsActivity::class.java))
             overridePendingTransition(R.anim.fade_in, R.anim.fade_out)
@@ -2885,13 +2731,10 @@ class  MainActivity : AppCompatActivity() {
 
     // ---- EQ UI Mode Switching ----
 
-    /** Pixel-positions the graph-header overlay buttons from the graph's
-     *  current width. Safe to call repeatedly (idempotent). Bails if the
-     *  graph isn't measured yet (width 0) — e.g. while GONE in Simple
-     *  mode. Called from the startup post{}, from switchEqUiMode after a
-     *  GONE→VISIBLE flip, and from onWindowFocusChanged so a theme-toggle
-     *  recreate re-lays-out at the *final* window width instead of the
-     *  transient mid-transition width that warped the buttons. */
+    /** Pixel-positions the graph-header overlay buttons from the graph width.
+     *  Idempotent; bails at width 0 (GONE in Simple mode). Called from startup
+     *  post{}, switchEqUiMode's GONE→VISIBLE flip, and onWindowFocusChanged so a
+     *  theme-toggle recreate lays out at the final (not transient) window width. */
     private fun relayoutGraphHeaderButtons() {
         if (!::eqGraphView.isInitialized) return
         val viewWidth = eqGraphView.width
@@ -2986,17 +2829,13 @@ class  MainActivity : AppCompatActivity() {
                 eqGraphView.setParametricEqualizer(eq)
                 eqGraphView.updateBandLevels()
                 stateManager.pushEqUpdate()
-                // Refresh the DP-band overlay — drawDpBands() reads cached
-                // dpCenterFrequencies/dpGains arrays that were populated with
-                // the Simple EQ response. Without this call the overlay keeps
-                // rendering the Simple curve as a ghost outline until the user
-                // touches the graph and triggers a separate refresh path.
+                // Refreshes the DP-band overlay — drawDpBands() reads cached
+                // dpCenterFrequencies/dpGains still holding the Simple EQ response.
             }
         }
-        // Save the advanced EQ state before entering SIMPLE mode.
-        // Skip if the current EQ is already a simple-EQ configuration (e.g. on app
-        // startup when Simple EQ was enabled in the previous session) — otherwise
-        // we'd overwrite the real advanced backup with simple-EQ band data.
+        // Save the advanced EQ before entering SIMPLE. Skip if the EQ is already a
+        // simple-EQ config (e.g. startup with Simple enabled) — otherwise we'd
+        // overwrite the real advanced backup with simple-EQ band data.
         if (mode == EqUiMode.SIMPLE && stateManager.currentEqUiMode != EqUiMode.SIMPLE) {
             val eq = stateManager.parametricEq
             val isAlreadySimpleConfig = eq.getBandCount() == com.bearinmind.equalizer314.ui.SimpleEqController.FREQUENCIES.size &&
@@ -3066,9 +2905,8 @@ class  MainActivity : AppCompatActivity() {
         when (mode) {
             EqUiMode.PARAMETRIC -> {
                 tableEqCard.setOnTouchListener(null)
-                // Restore preamp margin (this also accidentally sets the controls
-                // FrameLayout's topMargin to 8dp — that's what positions the table
-                // card; do NOT remove this line)
+                // Restore preamp margin — side effect sets the controls FrameLayout's
+                // topMargin to 8dp, which positions the table card; do NOT remove.
                 val contentLayout0 = (pageEq as ScrollView).getChildAt(0) as LinearLayout
                 val preampCard0 = contentLayout0.getChildAt(contentLayout0.childCount - 1)
                 (preampCard0.layoutParams as? LinearLayout.LayoutParams)?.topMargin = (8 * resources.displayMetrics.density).toInt()
@@ -3098,9 +2936,8 @@ class  MainActivity : AppCompatActivity() {
             }
             EqUiMode.GRAPHIC -> {
                 tableEqCard.setOnTouchListener(null)
-                // Restore preamp margin (this also accidentally sets the controls
-                // FrameLayout's topMargin to 8dp — that's what positions the table
-                // card; do NOT remove this line)
+                // Restore preamp margin — side effect sets the controls FrameLayout's
+                // topMargin to 8dp, which positions the table card; do NOT remove.
                 val contentLayoutG = (pageEq as ScrollView).getChildAt(0) as LinearLayout
                 val preampCardG = contentLayoutG.getChildAt(contentLayoutG.childCount - 1)
                 (preampCardG.layoutParams as? LinearLayout.LayoutParams)?.topMargin = (8 * resources.displayMetrics.density).toInt()
@@ -3131,14 +2968,11 @@ class  MainActivity : AppCompatActivity() {
 
                 val density = resources.displayMetrics.density
 
-                // Compute and apply the table card height + preamp translationY.
-                // Wrapped in a closure so we can run it both synchronously (best effort
-                // on cold start) and after the first layout pass (which corrects any
-                // cold-start measurement errors when the views haven't been laid out
-                // yet and parametricControlsCard.width is still 0).
+                // Table card height + preamp translationY. Closure so it runs both
+                // synchronously and after first layout (cold start measures at width 0).
                 val applyTableSizing = {
-                    // Use the actual outer LinearLayout's content width when available,
-                    // falling back to (screen width - 32dp parent padding) on cold start.
+                    // Outer LinearLayout content width when available, else
+                    // (screen width - 32dp parent padding) on cold start.
                     val outerLayout = (pageEq as ScrollView).getChildAt(0) as LinearLayout
                     val effectiveWidth = if (outerLayout.width > 0) {
                         outerLayout.width - outerLayout.paddingLeft - outerLayout.paddingRight
@@ -3151,11 +2985,10 @@ class  MainActivity : AppCompatActivity() {
                     bandToggleGroup.measure(widthSpec, heightSpec)
                     parametricControlsCard.measure(widthSpec, heightSpec)
 
-                    // Use bandToggleGroup.measuredHeight TWICE (for both row 1 and row 2)
-                    // so the table card stays a constant size regardless of band count.
-                    // Hardcode triangleContainer to 8dp because measure() returns 10dp
-                    // (the inner triangleIndicator child's height) instead of the 8dp
-                    // layout_height the parent uses in PARAM mode.
+                    // bandToggleGroup.measuredHeight counted TWICE (rows 1+2) so the card
+                    // size is constant regardless of band count. triangleContainer
+                    // hardcoded to 8dp — measure() returns the inner child's 10dp instead
+                    // of the 8dp layout_height PARAM mode uses.
                     var targetHeight = bandToggleGroup.measuredHeight +
                         (8 * density).toInt() +
                         parametricControlsCard.measuredHeight +
@@ -3172,9 +3005,7 @@ class  MainActivity : AppCompatActivity() {
                 // Synchronous best-effort
                 applyTableSizing()
 
-                // Re-run after the first layout pass — fixes cold-start case where the
-                // synchronous measurements use stale (zero) widths and the buttons in
-                // bandToggleGroup haven't been measured yet.
+                // Re-run after first layout — cold start measures with stale zero widths.
                 pageEq.post {
                     if (stateManager.currentEqUiMode == EqUiMode.TABLE) applyTableSizing()
                 }
@@ -3185,23 +3016,19 @@ class  MainActivity : AppCompatActivity() {
                     false
                 }
 
-                // Lock the table card at zero translation (defensive against any
-                // leftover translationY from previous frames or animations).
+                // Defensive: clear any leftover translationY from prior animations.
                 tableEqCard.translationY = 0f
 
-                // Move ONLY the actual preamp card visually up by 7dp so it sits at
-                // the same Y as in parametric/graphic mode. translationY does not
-                // affect layout — the table card stays put.
+                // Move ONLY the preamp card up 7dp visually to match its Y in
+                // parametric/graphic mode; translationY doesn't affect layout.
                 findViewById<View>(R.id.preampCardBar).translationY = -(7 * density)
 
                 tableController.buildTable()
             }
             EqUiMode.SIMPLE -> {
-                // Keep the mode selector visible so Simple is a true peer
-                // of Parametric/Graphic/Table — the user can switch back
-                // by tapping another card. Only the graph + advanced
-                // controls are hidden; the simple sliders render below
-                // the selector (simpleEqContainer is the last child).
+                // Keep the mode selector visible so Simple is a true peer of the other
+                // modes; only the graph + advanced controls hide (simple sliders
+                // render below the selector — simpleEqContainer is the last child).
                 modeSelectorGroup.visibility = View.VISIBLE
                 graphCardView.visibility = View.GONE
                 eqControlsContainer.visibility = View.GONE
@@ -3213,20 +3040,15 @@ class  MainActivity : AppCompatActivity() {
                     alpha = 1f
                 }
 
-                // Ensure the controls overlay FrameLayout has the same topMargin
-                // as it does in PARAMETRIC/GRAPHIC mode (the "Restore preamp margin"
-                // code sets it to 8dp there, but doesn't run in SIMPLE mode).
+                // Match the controls overlay's 8dp topMargin from PARAMETRIC/GRAPHIC
+                // (the "Restore preamp margin" code doesn't run in SIMPLE).
                 val overlay = simpleEqContainer.parent as? View
                 (overlay?.layoutParams as? LinearLayout.LayoutParams)?.topMargin =
                     (8 * resources.displayMetrics.density).toInt()
                 overlay?.requestLayout()
 
-                // In SIMPLE mode the mode selector + graph card are GONE, so the
-                // content starts right at the top of pageEq. MBC/Limiter activities
-                // handle this with fitsSystemWindows on their root, but here we need
-                // to manually offset. Set the outer LinearLayout's paddingTop to 0
-                // (the rootLayout already handles the status bar inset) — this is
-                // already 0dp from XML, no change needed.
+                // Content starts at the top of pageEq here; rootLayout already handles
+                // the status-bar inset (outer paddingTop stays 0dp from XML).
 
                 // Scroll to top so header starts at correct position
                 (pageEq as android.widget.ScrollView).scrollTo(0, 0)
@@ -3236,29 +3058,23 @@ class  MainActivity : AppCompatActivity() {
                 simpleEqController.configureParametricEq()
                 simpleEqController.buildSliders()
 
-                // Reparent the existing preamp card from eqControlsContainer into
-                // simpleEqContainer as the last child (preamp sits below the
-                // bars / preset area). Append via childCount rather than a
-                // hardcoded index — the index shifted when the "Simple EQ Mode"
-                // header was removed, and appending is robust to future layout
-                // changes in SimpleEqController.buildSliders().
+                // Reparent the preamp card into simpleEqContainer as the LAST child
+                // (below bars/preset area). Append via childCount, not a hardcoded
+                // index — robust to layout changes in SimpleEqController.buildSliders().
                 val preampCard = findViewById<View>(R.id.preampCardBar)
                 (preampCard.parent as? android.view.ViewGroup)?.removeView(preampCard)
                 simpleEqContainer.addView(preampCard, simpleEqContainer.childCount)
                 preampCard.translationY = 0f
-                // Consistent 12dp inter-card gap to match the graph / bars /
-                // controls cards (topMargin 0 so the bars card's bottom
-                // margin isn't doubled).
+                // 12dp inter-card gap matching the other cards; topMargin 0 so the
+                // bars card's bottom margin isn't doubled.
                 (preampCard.layoutParams as? LinearLayout.LayoutParams)?.apply {
                     topMargin = 0
                     bottomMargin = (12 * resources.displayMetrics.density).toInt()
                 }
             }
         }
-        // Re-push EQ so DynamicsProcessingManager re-evaluates the
-        // direct-graphic-vs-feature-aware path flag against the new mode.
-        // Without this the live DP keeps using whatever path was active
-        // before the switch until the next slider tick / band edit.
+        // Re-push EQ so DynamicsProcessingManager re-evaluates the direct-graphic-vs-
+        // feature-aware path flag now, not at the next slider tick / band edit.
         stateManager.pushEqUpdate()
         // Refresh the red experimental-DP overlay so it shows the new
         // path (feature-aware ↔ direct) the moment the mode changes.
@@ -3273,9 +3089,8 @@ class  MainActivity : AppCompatActivity() {
         // Determine which page the selected band is on
         val selectedBand = stateManager.selectedBandIndex ?: 0
         val displayPos = stateManager.displayToBandIndex.indexOf(selectedBand).let { if (it < 0) 0 else it }
-        // In expanded mode (issue #31) there can be 3+ rows, so the
-        // active/inactive page swap doesn't apply — keep row 1 on top, row 2
-        // (and the scrollable extras + "+") below.
+        // Expanded mode (issue #31) can have 3+ rows — no active/inactive page swap;
+        // row 1 stays on top, row 2 + scrollable extras + "+" below.
         val activePage = if (EqStateManager.MAX_BANDS > 16) 0 else displayPos / 8
         val activeRow = if (activePage == 0) bandToggleGroup else bandToggleGroup2
         val inactiveRow = if (activePage == 0) bandToggleGroup2 else bandToggleGroup
@@ -3291,9 +3106,8 @@ class  MainActivity : AppCompatActivity() {
         val expectedInactiveIdx = if (controlsView != null) parent.indexOfChild(controlsView) + 1 else graphIdx + 3
         val currentInactiveIdx = parent.indexOfChild(inactiveRow)
 
-        // Keep the experimental extra-rows scroll + the dedicated "+" directly
-        // below the inactive (bottom) toggle row, so the "+" sits under bands
-        // 9-16, not 1-8 (issue #31). No-op in the default 16-band layout.
+        // Keep extra-rows scroll + "+" directly below the inactive (bottom) row so
+        // "+" sits under bands 9-16, not 1-8 (issue #31). No-op at default 16 bands.
         fun positionExtraBandViews() {
             if (EqStateManager.MAX_BANDS <= 16) return
             val idx = parent.indexOfChild(inactiveRow)
@@ -3718,13 +3532,10 @@ class  MainActivity : AppCompatActivity() {
             return
         }
 
-        // POST_NOTIFICATIONS is only needed to *display* the foreground-service
-        // notification. The service starts fine without it on API 33+ — the
-        // notification is just silently suppressed. Don't gate the EQ on it,
-        // and don't return early: the previous behaviour caused an infinite
-        // recursion freeze when notifications were OS-disabled (the system
-        // returned DENIED immediately, onRequestPermissionsResult retried
-        // startProcessing(), which re-requested → loop on the main thread).
+        // POST_NOTIFICATIONS only gates *displaying* the FGS notification — the
+        // service runs fine without it on API 33+ (notification silently suppressed).
+        // Don't gate the EQ on it or return early: with notifications OS-disabled the
+        // system returns DENIED immediately and a retry loop froze the main thread.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
             && !notificationPermissionRequested
             && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
@@ -3799,9 +3610,8 @@ class  MainActivity : AppCompatActivity() {
         com.bearinmind.equalizer314.ui.BottomNavHelper.updateStatus(this, eqPrefs)
     }
 
-    /** Flip the EQ on/off. Shared by the text button and the graph-
-     *  header icon. Toggles `parametricEq.isEnabled` and, while
-     *  processing, pushes it to the live DP via setEqEnabled. */
+    /** Flip the EQ on/off (text button + graph-header icon). Toggles
+     *  `parametricEq.isEnabled`; while processing, pushes to live DP via setEqEnabled. */
     private fun toggleEq() {
         val eq = stateManager.parametricEq
         eq.isEnabled = !eq.isEnabled
@@ -3821,10 +3631,8 @@ class  MainActivity : AppCompatActivity() {
         if (::eqPowerToggle.isInitialized) applyEqToggleVisual(enabled)
     }
 
-    /** Active/inactive styling for the graph-header EQ toggle. Shows
-     *  "ON" / "OFF" text, mirroring the visualizer button's lit-when-on
-     *  look: filled background + brighter stroke + bright text when EQ
-     *  is on; dim outlined when off. */
+    /** Graph-header EQ toggle styling: "ON"/"OFF" text, lit (filled bg + brighter
+     *  stroke) when on, dim outlined when off — mirrors the visualizer button. */
     private fun applyEqToggleVisual(enabled: Boolean) {
         if (!::eqPowerToggle.isInitialized) return
         val d = resources.displayMetrics.density
@@ -3847,9 +3655,8 @@ class  MainActivity : AppCompatActivity() {
     private fun setupFilterTypeButtons() {
         filterTypeGroup.removeAllViews()
 
-        // PEAK — first tap applies BELL (the default "Peak" / PK). When the
-        // band is already in the peak family (PK / BP / NO / AP), a second
-        // tap opens a dropdown to pick between those four sub-types.
+        // PEAK — first tap applies BELL (PK); second tap while already in the peak
+        // family (PK / BP / NO / AP) opens the sub-type dropdown.
         val peakBtn = buildFilterTypeButton(
             label = "PEAK",
             defaultSubtitle = "",
@@ -3895,9 +3702,8 @@ class  MainActivity : AppCompatActivity() {
             filterTypeGroup.addView(btn)
         }
 
-        // BYPASS — tied 1:1 with the APO `AP` (all-pass) token. Tapping
-        // BYPASS sets the band to ALL_PASS (flat magnitude on-device, exports
-        // as `Filter N: ON AP ...`). No dropdown, single tap applies.
+        // BYPASS — tied 1:1 to APO's `AP` token: sets ALL_PASS (flat magnitude
+        // on-device, exports as `Filter N: ON AP ...`). Single tap, no dropdown.
         val bypassBtn = buildFilterTypeButton(
             label = "BYPASS",
             defaultSubtitle = "",
@@ -3969,11 +3775,8 @@ class  MainActivity : AppCompatActivity() {
                 e.btn.strokeColor = android.content.res.ColorStateList.valueOf(getColor(R.color.filter_outline))
             }
 
-            // Subtitle policy:
-            //   • PEAK: blank. Sub-type is shown by replacing the primary
-            //     label with "BAND PASS" / "NOTCH" instead of a subtitle.
-            //   • Shelves / passes: current slope if active, else default "12 dB".
-            //   • BYPASS: blank. Bypass↔AP mapping is implicit in APO export.
+            // Subtitle: PEAK blank (sub-type replaces the primary label);
+            // shelves/passes show current slope if active else "12 dB"; BYPASS blank.
             val primary: String = when (e.role) {
                 Role.PEAK -> peakButtonLabel(currentType, bandEnabled)
                 else -> e.label
@@ -3990,10 +3793,8 @@ class  MainActivity : AppCompatActivity() {
         }
     }
 
-    /** Primary label text for the PEAK button. When the band is on BP or NO
-     *  the label swaps to "B. PASS" / "NOTCH" so the sub-type reads like its
-     *  own filter category rather than a variant badge. "B. PASS" keeps the
-     *  label short so the text stays at full size without shrinking. */
+    /** PEAK button primary label. On BP/NO it swaps to "B. PASS"/"NOTCH" so the
+     *  sub-type reads as its own category; "B. PASS" stays short enough to avoid shrink. */
     private fun peakButtonLabel(current: BiquadFilter.FilterType, bandEnabled: Boolean): String = when {
         !bandEnabled -> "PEAK"
         current == BiquadFilter.FilterType.BAND_PASS -> "B. PASS"
@@ -4003,8 +3804,7 @@ class  MainActivity : AppCompatActivity() {
 
     private enum class Role { PEAK, SHELF_PASS, BYPASS }
 
-    /** True when the filter type belongs to the PEAK button's dropdown:
-     *  the plain bell plus the two gainless Fc+Q specials (BP / NO).
+    /** PEAK dropdown membership: plain bell + gainless Fc+Q specials (BP / NO).
      *  ALL_PASS lives on the BYPASS button, not here. */
     private fun isPeakFamily(t: BiquadFilter.FilterType): Boolean = when (t) {
         BiquadFilter.FilterType.BELL,
@@ -4014,9 +3814,8 @@ class  MainActivity : AppCompatActivity() {
     }
 
 
-    /** Collapse 1st- and 2nd-order variants into a single "family" key so the
-     *  filter-type button highlighting treats LShelf / LShelf (6 dB) as the
-     *  same button. */
+    /** Collapse 1st/2nd-order variants into one "family" key so highlighting
+     *  treats LShelf / LShelf (6 dB) as the same button. */
     private fun filterTypeFamily(t: BiquadFilter.FilterType): BiquadFilter.FilterType = when (t) {
         BiquadFilter.FilterType.LOW_SHELF_1 -> BiquadFilter.FilterType.LOW_SHELF
         BiquadFilter.FilterType.HIGH_SHELF_1 -> BiquadFilter.FilterType.HIGH_SHELF
@@ -4035,13 +3834,9 @@ class  MainActivity : AppCompatActivity() {
         else -> null
     }
 
-    /** Build the filter-button label. Two-line form when a subtitle is
-     *  supplied ("LSHELF\n12 dB"); single-line form when there's no subtitle
-     *  (PEAK, B. PASS, NOTCH, BYPASS) so the visible text sits at the true
-     *  vertical center of the button. Row / button minHeight keeps every
-     *  cell the same size despite the line-count difference. The primary
-     *  label is proportionally shrunk when it's long enough to overflow
-     *  (8+ chars → 70% of the button's textSize). */
+    /** Filter-button label: two-line with subtitle ("LSHELF\n12 dB"), single-line
+     *  without so text sits at true vertical center; minHeight keeps cells equal.
+     *  Primary label shrinks at 8+ chars → 70% of the button textSize. */
     private fun buildFilterButtonText(primary: String, subtitle: String): CharSequence {
         val full = if (subtitle.isEmpty()) primary else "$primary\n$subtitle"
         val span = android.text.SpannableString(full)
@@ -4059,9 +3854,8 @@ class  MainActivity : AppCompatActivity() {
         return span
     }
 
-    /** Apply a chosen filter type to a band and refresh every dependent UI
-     *  surface (graph, toggles, inputs, DP pipeline, saved state). Used by
-     *  both the direct PEAK tap and the slope-popup selection path. */
+    /** Apply a filter type to a band and refresh every dependent surface (graph,
+     *  toggles, inputs, DP pipeline, saved state). Used by direct tap + slope popup. */
     private fun applyFilterTypeToBand(bandIndex: Int, newType: BiquadFilter.FilterType) {
         stateManager.parametricEq.setBandEnabled(bandIndex, true)
         eqGraphView.setFilterType(bandIndex, newType)
@@ -4074,10 +3868,8 @@ class  MainActivity : AppCompatActivity() {
         stateManager.persistLeftRightIfCse()
     }
 
-    /** Shared factory for the filter-type buttons in both rows. `weightedWidth`
-     *  gives the button `layout_weight=1` with width=0 (for the shelves row);
-     *  passing a `fixedWidthPx` gives it that exact width (for the centered
-     *  PEAK / BYPASS row). */
+    /** Filter-type button factory. `weightedWidth` → layout_weight=1/width=0
+     *  (shelves row); `fixedWidthPx` → exact width (centered PEAK/BYPASS row). */
     private fun buildFilterTypeButton(
         label: String,
         defaultSubtitle: String,
@@ -4096,9 +3888,8 @@ class  MainActivity : AppCompatActivity() {
             // centered regardless of label length or subtitle state.
             gravity = android.view.Gravity.CENTER
             textAlignment = View.TEXT_ALIGNMENT_CENTER
-            // Drop the font's ascender/descender padding so the two-line
-            // text block measures exactly 2x its line height and centers
-            // cleanly inside the button's vertical space.
+            // Drop font ascender/descender padding so two-line text measures exactly
+            // 2x line height and centers cleanly.
             includeFontPadding = false
             layoutParams = if (weightedWidth) {
                 LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
@@ -4116,9 +3907,8 @@ class  MainActivity : AppCompatActivity() {
         }
     }
 
-    /** Drop the PEAK button's PK / BP / NO / AP dropdown directly below the
-     *  button, styled to match `showSlopePopup`. Tapping any item applies
-     *  that filter type to the active band. */
+    /** PEAK dropdown (PK / BP / NO) below the button, styled like showSlopePopup;
+     *  tapping an item applies that type to the active band. */
     private fun showPeakPopup(anchor: View, bandIndex: Int) {
         val band = stateManager.parametricEq.getBand(bandIndex) ?: return
         val current = band.filterType
@@ -4190,9 +3980,8 @@ class  MainActivity : AppCompatActivity() {
             container.addView(divider)
         }
 
-        // PK (plain bell) lives at the top so the user can return from
-        // BP / NO to a classic peaking bell without round-tripping through a
-        // different filter family. AP is owned by BYPASS, not listed here.
+        // PK at top so the user can return from BP/NO to a plain bell without
+        // round-tripping through another family. AP is owned by BYPASS.
         addItem("PK", BiquadFilter.FilterType.BELL)
         addDivider()
         addItem("BP", BiquadFilter.FilterType.BAND_PASS)
@@ -4202,10 +3991,8 @@ class  MainActivity : AppCompatActivity() {
         popup.showAsDropDown(anchor, 0, (2 * density).toInt())
     }
 
-    /** Drop a small outlined popup directly below the tapped filter button,
-     *  styled to match the button itself (same width, same outline colour,
-     *  same card background). Two items — "12 dB" and "6 dB" — apply the
-     *  corresponding 2nd- or 1st-order variant of the tapped filter family. */
+    /** Outlined popup below the tapped filter button (same width/outline/surface).
+     *  "12 dB" / "6 dB" apply the 2nd- or 1st-order variant of that family. */
     private fun showSlopePopup(
         anchor: View,
         bandIndex: Int,
@@ -4299,27 +4086,17 @@ class  MainActivity : AppCompatActivity() {
         }
     }
 
-    /** Paint the L / R button bg/stroke/text colours according to the current
-     *  active channel. Does NOT touch alpha — callers that drive the popup
-     *  animation set alpha independently. */
-    /** Geometry cached on first layout so `repositionChannelBadge` can
-     *  re-anchor the badge whenever its text changes (L vs R glyphs can
-     *  differ in width at very small font sizes, and the XML placeholder
-     *  may measure slightly differently from the runtime value). */
+    /** Geometry cached on first layout so `repositionChannelBadge` can re-anchor
+     *  the badge when its text changes (L vs R glyph widths differ at small sizes). */
     private var badgeAnchorAltRouteLeft: Int = 0
     private var badgeAnchorSpecWidth: Int = 0
     private var badgeAnchorBtnTop: Int = 0
 
-    /** Position the L/R badge in the top-right corner of the split icon,
-     *  accounting for the badge's actual measured width so the right edge
-     *  sits a consistent 6 dp inside the button regardless of glyph width.
-     *  "Correct" offsets tuned by hand against the Samsung Z Flip7 UI —
-     *  if the user asks to revisit L/R badge positioning, these are the
-     *  baseline values:
-     *    leftMargin = altRouteLeft + specWidth - badgeWidth - 6 dp
-     *    topMargin  = btnTop + 5 dp
-     *  Increasing the leftMargin dp-offset moves the badge LEFT; decreasing
-     *  it moves RIGHT. */
+    /** Position the L/R badge in the split icon's top-right, using measured badge
+     *  width so the right edge sits 6 dp inside the button. Offsets hand-tuned on
+     *  Samsung Z Flip7 — baseline: leftMargin = altRouteLeft + specWidth -
+     *  badgeWidth - 6dp, topMargin = btnTop + 5dp. Increasing the leftMargin
+     *  dp-offset moves the badge LEFT; decreasing moves RIGHT. */
     private fun repositionChannelBadge(badge: android.widget.TextView) {
         val density = resources.displayMetrics.density
         badge.measure(
@@ -4333,6 +4110,8 @@ class  MainActivity : AppCompatActivity() {
         badge.layoutParams = lp
     }
 
+    /** Paint L/R button bg/stroke/text per active channel. Does NOT touch alpha —
+     *  popup-animation callers set alpha independently. */
     private fun paintChannelButtonStyles() {
         // TV Mode nav sync — fires on L / R / Both view changes.
         com.bearinmind.equalizer314.remote.TvRemoteHub.onLocalEqChanged()
@@ -4401,16 +4180,12 @@ class  MainActivity : AppCompatActivity() {
         )
     }
 
-    /** Visual state for the L / R popout buttons.
-     *  - CSE off: both buttons dim (alpha 0.4), outlined style.
-     *  - CSE on: both buttons at full alpha; active uses filled "pressed"
-     *    style (like the active Spectrum / Band-points buttons), the other
-     *    uses the outlined style. */
+    /** L/R popout visual state: CSE off = both dim outlined; CSE on = full alpha,
+     *  active gets the filled "pressed" style, the other stays outlined. */
     private fun refreshChannelPopoutDim() {
         paintChannelButtonStyles()
-        // Dim via COLOR only (paintChannelButtonStyles' dim palette), never
-        // view alpha — a translucent button lets the graph's band badges
-        // render straight through it.
+        // Dim via COLOR only, never view alpha — a translucent button lets the
+        // graph's band badges render straight through it.
         val lBtn = findViewById<View>(R.id.channelLButton) ?: return
         val rBtn = findViewById<View>(R.id.channelRButton) ?: return
         lBtn.alpha = 1.0f; rBtn.alpha = 1.0f
@@ -4443,8 +4218,7 @@ class  MainActivity : AppCompatActivity() {
         stateManager.getGhostEqs().let { eqGraphView.setGhostEqualizer(it.first, it.second) }
         // Shared "Both" layer summed into the drawn curves.
         eqGraphView.setOverlayEqualizer(stateManager.getGraphOverlayEq())
-        // Point the graph at the now-active channel's slot list — each channel
-        // keeps its own, so a switch must refresh the labels (and the band
+        // Each channel keeps its own slot list — refresh the labels (and the band
         // count they're sized against) or they'd lag a channel behind.
         eqGraphView.setBandSlotLabels(stateManager.bandSlots)
         eqGraphView.updateBandLevels()
@@ -4465,9 +4239,8 @@ class  MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         updateDevicePresetStatus()
-        // If the "Add more EQ bands" cap was lowered (toggled off) while we were
-        // away, drop any bands added beyond it, then refresh the toggle UI +
-        // graph (issue #31).
+        // "Add more EQ bands" cap lowered while away: drop bands beyond it, then
+        // refresh toggles + graph (issue #31).
         if (stateManager.enforceBandCap()) {
             rebindActiveEq()                 // rebuilds toggles + graph + DP
             reorderToggleRows(animate = false)
@@ -4478,11 +4251,8 @@ class  MainActivity : AppCompatActivity() {
             reorderToggleRows(animate = false)
         }
         lastAppliedMaxBands = EqStateManager.MAX_BANDS
-        // Pick up any limiter changes made in LimiterActivity while we were
-        // paused. LimiterActivity writes prefs directly and never touches
-        // EqStateManager's mirror fields, so without this sync the next
-        // saveState() (onPause) would overwrite the user's prefs with stale
-        // in-memory values.
+        // Sync limiter mirror fields: LimiterActivity writes prefs directly, so
+        // without this the next saveState() would overwrite them with stale values.
         stateManager.limiterEnabled     = eqPrefs.getLimiterEnabled()
         stateManager.limiterAttackMs    = eqPrefs.getLimiterAttack()
         stateManager.limiterReleaseMs   = eqPrefs.getLimiterRelease()
@@ -4491,9 +4261,8 @@ class  MainActivity : AppCompatActivity() {
         stateManager.limiterPostGainDb  = eqPrefs.getLimiterPostGain()
         // Apply spectrum settings (may have changed in SpectrumControlActivity)
         applySpectrumSettings()
-        // Sync Channel Side EQ state — the switch lives in ChannelSideEqActivity,
-        // so when we return here the pref may have flipped and we need to swap
-        // the active ParametricEqualizer accordingly.
+        // Sync CSE state — the switch lives in ChannelSideEqActivity, so the pref
+        // may have flipped while away; swap the active ParametricEqualizer to match.
         val cseOnNow = eqPrefs.getChannelSideEqEnabled()
         val cseOnInState = stateManager.activeChannel != EqStateManager.ActiveChannel.BOTH
         if (cseOnNow != cseOnInState) {
@@ -4506,14 +4275,12 @@ class  MainActivity : AppCompatActivity() {
         // start with CSE already on (issue #53).
         stateManager.getGhostEqs().let { eqGraphView.setGhostEqualizer(it.first, it.second) }
         eqGraphView.setOverlayEqualizer(stateManager.getGraphOverlayEq())
-        // Set FAB from saved power state — instant, no animation
         val savedPower = eqPrefs.getPowerState()
         com.bearinmind.equalizer314.ui.BottomNavHelper.setPowerFabInstant(this, savedPower)
         if (stateManager.serviceBound && stateManager.eqService != null) {
             stateManager.isProcessing = stateManager.eqService!!.dynamicsManager.isActive
-            // Safety net: returning to the app after an app-switch dropout
-            // should restore the EQ even if the service watchdog hasn't
-            // ticked yet (e.g. the OEM never fired a playback callback).
+            // Safety net: restore the EQ after an app-switch dropout even if the
+            // watchdog hasn't ticked (e.g. OEM never fired a playback callback).
             stateManager.eqService?.let { svc ->
                 if (svc.dynamicsManager.isActive && svc.dynamicsManager.hasLostControl()) {
                     svc.requestWatchdogCheck()
@@ -4537,7 +4304,6 @@ class  MainActivity : AppCompatActivity() {
         updateAutoEqStatus()
         updateTargetStatus()
 
-        // Check if Simple EQ was toggled in experimental settings
         val simpleEqEnabled = eqPrefs.getSimpleEqEnabled()
         if (simpleEqEnabled && stateManager.currentEqUiMode != EqUiMode.SIMPLE) {
             switchEqUiMode(EqUiMode.SIMPLE)
@@ -4562,11 +4328,9 @@ class  MainActivity : AppCompatActivity() {
 
     override fun onStop() {
         super.onStop()
-        // Belt-and-suspenders save: onPause already saves on the way to
-        // background, but onStop runs more reliably when the system is
-        // about to abruptly tear down the process (low-memory kill,
-        // Bluetooth A2DP disconnect cascade). Re-flushing here makes
-        // sure any edits made between onPause and onStop also persist.
+        // Belt-and-suspenders: onStop runs more reliably than onPause on abrupt
+        // teardown (low-memory kill, Bluetooth A2DP disconnect cascade); re-flush
+        // so edits between onPause and onStop persist too.
         if (stateManager.currentEqUiMode == EqUiMode.SIMPLE) {
             simpleEqController.saveGains()
         }
@@ -4589,10 +4353,8 @@ class  MainActivity : AppCompatActivity() {
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == 100) {
-            // Don't retry startProcessing() here — the original call already
-            // proceeded with power-on (see startProcessing's notification
-            // permission block). Retrying would re-enter the same path and
-            // freeze the UI when notifications are OS-disabled.
+            // Don't retry startProcessing() — the original call already proceeded;
+            // retrying froze the UI when notifications were OS-disabled.
             if (grantResults.isNotEmpty()
                 && grantResults[0] != android.content.pm.PackageManager.PERMISSION_GRANTED
             ) {
@@ -4618,12 +4380,10 @@ class  MainActivity : AppCompatActivity() {
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        // When the window is focused the graph is at its final laid-out
-        // width. Re-assert the header-button positions here so a
-        // light/dark theme toggle (which recreates the activity with a
-        // fade transition, during which the startup post{} can fire at a
-        // transient width) ends up correct. Skipped in Simple mode, where
-        // the graph card is hidden and the buttons don't apply.
+        // On focus the graph has its final width — re-assert header-button
+        // positions so a theme-toggle recreate (whose fade transition lets the
+        // startup post{} fire at a transient width) ends up correct. Skipped in
+        // Simple mode (graph card hidden).
         if (hasFocus && ::eqGraphView.isInitialized && ::stateManager.isInitialized &&
             stateManager.currentEqUiMode != EqUiMode.SIMPLE) {
             eqGraphView.post { relayoutGraphHeaderButtons() }
@@ -4648,7 +4408,6 @@ class  MainActivity : AppCompatActivity() {
         } else {
             stateManager.isProcessing = false
         }
-        // Check if we should show settings page
         if (intent?.getBooleanExtra("showSettings", false) == true) {
             pageEq.visibility = View.GONE
             pageSettings.visibility = View.VISIBLE

@@ -29,10 +29,8 @@ class GraphicEqController(
     private val PAGE_SIZE = 8
     var targetCardHeight = 0
 
-    /** Order bands by their displayed slot label (1, 2, 3, …) so the
-     *  graphic-section sliders stay in numeric order regardless of where
-     *  the user has dragged dots on the graph. Falls back to natural
-     *  index when no slot mapping is present. */
+    /** Order bands by displayed slot label (1, 2, 3…) regardless of dot positions
+     *  on the graph; falls back to natural index without a slot mapping. */
     private fun bandOrder(eq: com.bearinmind.equalizer314.dsp.ParametricEqualizer): List<Int> {
         val slots = state.bandSlots
         return (0 until eq.getBandCount()).sortedBy {
@@ -165,10 +163,8 @@ class GraphicEqController(
         val sliderVisualHeight = (130 * density).toInt()
         val btnMargin = 2
 
-        // Full 12-token APO vocabulary for this band. Labels are kept tight
-        // so the bottom-sheet popup reads at a glance and matches the
-        // Parametric-mode labelling. BYPASS is the last entry and maps to
-        // ALL_PASS (Bypass↔AP tie).
+        // Full 12-token APO vocabulary; tight labels match Parametric mode.
+        // BYPASS is the last entry and maps to ALL_PASS (Bypass↔AP tie).
         val filterTypes = listOf(
             BiquadFilter.FilterType.BELL,
             BiquadFilter.FilterType.LOW_SHELF, BiquadFilter.FilterType.LOW_SHELF_1,
@@ -390,11 +386,8 @@ class GraphicEqController(
                         setPadding((16 * density).toInt(), (14 * density).toInt(), (16 * density).toInt(), (14 * density).toInt())
                         setOnClickListener {
                             val b = eq.getBand(bandIndex) ?: return@setOnClickListener
-                            // Always apply the chosen type directly. BYPASS
-                            // is the last entry and maps to ALL_PASS — same
-                            // tie used in Parametric mode. Re-enable the
-                            // band so no filter stays in the legacy disabled
-                            // state after a selection.
+                            // BYPASS (last entry) maps to ALL_PASS — same tie as Parametric
+                            // mode. Re-enable so nothing stays legacy-disabled after selecting.
                             if (!b.enabled) eq.setBandEnabled(bandIndex, true)
                             eq.updateBand(bandIndex, b.frequency, b.gain, filterTypes[idx], b.q)
                             filterBtn.text = filterTypeLabels[idx]

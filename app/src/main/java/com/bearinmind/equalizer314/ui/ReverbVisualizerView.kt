@@ -15,15 +15,9 @@ import kotlin.math.min
 import kotlin.math.pow
 
 /**
- * "Swarm-Reverb"-style amplitude visualization for EnvironmentalReverb.
- * Draws thin vertical bars rising from the baseline, each one
- * representing a reflection in the IR. Pink-to-purple vertical gradient
- * shared across all bars; dark moody gradient background. A faint
- * exponential-decay envelope sits behind the bars as a ghost reference.
- *
- * Three regions still present (Pre-delay | Early Reflections | Decay)
- * with the same labels, total-decay-time arrow, amplitude axis label,
- * and five drag handles.
+ * Amplitude visualization for EnvironmentalReverb: thin vertical bars (one per IR
+ * reflection) over a ghost decay envelope, with three labelled regions
+ * (Pre-delay | Early Reflections | Decay) and drag handles.
  */
 class ReverbVisualizerView @JvmOverloads constructor(
     context: Context,
@@ -50,14 +44,11 @@ class ReverbVisualizerView @JvmOverloads constructor(
     var reflectionsLevelDb: Float = -10f; set(v) { field = v; invalidate() }
     var diffusionPct: Float = 100f; set(v) { field = v; invalidate() }
     var densityPct: Float = 100f; set(v) { field = v; invalidate() }
-    /** Visual-only width of the early-reflection cluster. Android's
-     *  EnvironmentalReverb has no API for this — the IR-graph just
-     *  needs *some* value to render the early-reflection bars at a
-     *  reasonable spread. Held constant. */
+    /** Visual-only early-reflection cluster width; EnvironmentalReverb has no API
+     *  for this, the graph just needs a constant spread. */
     private val earlyReflectionsWidthMs: Float = 268f
-    /** Reverb Delay (ms) — silence between the early reflections and
-     *  the start of the late reverb tail. EnvironmentalReverb API
-     *  range is 0..100 ms. */
+    /** Reverb Delay (ms): silence between early reflections and the late tail.
+     *  EnvironmentalReverb API range 0..100 ms. */
     var reverbDelayMs: Float = 11f
         set(v) { field = v.coerceIn(0f, 100f); invalidate() }
     /** Room HF Level (dB) — static high-frequency shelf cut applied
@@ -72,9 +63,8 @@ class ReverbVisualizerView @JvmOverloads constructor(
     private val bgColor = 0xFF1A1A1A.toInt()
     private val directBarColor = 0xFFE8E8E8.toInt()  // brightest — direct sound
     private val earlyBarColor = 0xFFBBBBBB.toInt()   // early reflections
-    // The "regular decay" reflections (linear envelope, no HF damping
-    // applied) are drawn in a brighter shade so they read as the
-    // primary signal; the HF-damped portions get a darker shade below.
+    // Regular (non-HF-damped) decay drawn brighter so it reads as the primary
+    // signal; HF-damped portions get a darker shade.
     private val bodyBarColor = 0xFFBBBBBB.toInt()    // regular decay (bright)
     private val tailBarColor = bodyBarColor          // decay tail (unified)
     private val ghostEnvelopeColor = 0x44999999.toInt()
@@ -109,9 +99,8 @@ class ReverbVisualizerView @JvmOverloads constructor(
         strokeWidth = 2.0f * density
         color = earlyBarColor
     }
-    // Dashed variant used when the cluster has collapsed (Early Refl
-    // slider at its minimum). The dashes communicate "this region
-    // exists but has no width yet."
+    // Dashed variant when the cluster is collapsed (Early Refl slider at min):
+    // "region exists but has no width yet."
     private val earlyBarDashedPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeCap = Paint.Cap.BUTT
@@ -144,32 +133,23 @@ class ReverbVisualizerView @JvmOverloads constructor(
         strokeWidth = 1.3f * density
         color = tailBarColor
     }
-    // High-frequency overlay bar — drawn on top of each regular tail
-    // bar at the HF-damped height (using decayHfRatio's exponent),
-    // so the difference between the linear "regular" decay and the
-    // HF-damped decay is visible like a spectrum analyser's HF band.
-    // At decayHfRatio == 1 it equals the regular bar; at < 1 it's
-    // shorter (HF dies faster); at > 1 it extends taller (HF sustains).
+    // HF overlay bar drawn at the HF-damped height (decayHfRatio exponent):
+    // equals the regular bar at ratio 1, shorter <1 (HF dies faster), taller >1.
     private val hfBarPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeCap = Paint.Cap.ROUND
         strokeWidth = 1.6f * density
-        // Darker shade for the HF-damped portion of the bar — paired
-        // with the brighter [bodyBarColor] used for the regular decay.
+        // Darker shade for HF-damped portion, paired with brighter bodyBarColor.
         color = 0xFF3A3A3A.toInt()
     }
-    // Bar segment colour drawn ABOVE the linear envelope when the
-    // HF-damped curve sits higher than linear (decayHfRatio > 1). A
-    // lighter grey, distinct from both the dark-grey HF base (555555)
-    // and the bulk-decay 888888, so the linear-line crossing is
-    // visible just like the HF-curve crossing on the damped side.
+    // Segment drawn ABOVE the linear envelope when HF-damped > linear
+    // (decayHfRatio > 1).
     private val hfExcessPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeCap = Paint.Cap.ROUND
         strokeWidth = 1.6f * density
-        // HF-sustained excess shares the same dark shade as the HF
-        // base so all HF-related portions read as one tone, leaving
-        // the bright bodyBarColor exclusively to the regular decay.
+        // Same dark shade as the HF base so all HF portions read as one tone,
+        // leaving bodyBarColor exclusively to the regular decay.
         color = 0xFF3A3A3A.toInt()
     }
     private val ghostEnvelopePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -203,10 +183,9 @@ class ReverbVisualizerView @JvmOverloads constructor(
         strokeWidth = 1.2f * density
         style = Paint.Style.STROKE
     }
-    // Slider-thumb paints — mirror the density/diffusion view's dot
-    // styling EXACTLY: bg-coloured fill so the track-line punches
-    // cleanly through the ring, a 2.5 px light-grey ring on top, amber
-    // ring when grabbed. (Stroke width is raw px to match the X/Y dot.)
+    // Thumb paints mirror the density/diffusion view's dot: bg fill so the
+    // track-line punches through, 2.5 px light-grey ring, amber when grabbed
+    // (stroke width raw px to match the X/Y dot).
     private val handleFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
         color = bgColor
@@ -221,10 +200,8 @@ class ReverbVisualizerView @JvmOverloads constructor(
         color = 0xFFDDDDDD.toInt()
         strokeWidth = 2.5f
     }
-    // Soft grey halo drawn around the currently-grabbed dot. The
-    // halo's alpha smoothly fades in on ACTION_DOWN and out on
-    // ACTION_UP rather than appearing/disappearing instantly. Same
-    // visual language used elsewhere in the app for "active" feedback.
+    // Soft grey halo around the grabbed dot; alpha fades in on ACTION_DOWN and
+    // out on ACTION_UP (matches the app's "active" feedback language).
     private val rippleHaloPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
         color = 0xFFBBBBBB.toInt()
@@ -233,18 +210,14 @@ class ReverbVisualizerView @JvmOverloads constructor(
     private var rippleStateChangeMs = 0L
     private val rippleFadeInMs = 120L
     private val rippleFadeOutMs = 220L
-    // Outline drawn around zones that allow 2-D drag (Early Reflections
-    // and Decay). The dot inside the card can be dragged side-to-side
-    // (existing X behaviour) and up-and-down (new Y behaviour, visual-
-    // only for now).
+    // Outline around zones allowing 2-D drag (Early Reflections, Decay).
     private val zoneCardPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         color = 0xFF444444.toInt()
         strokeWidth = 1.5f * density
     }
-    // Faint shaded fill drawn over the silent regions (Pre-delay and
-    // Reverb Delay zones in the bar area) to communicate "intentionally
-    // empty" instead of looking like dead pixels.
+    // Faint fill over the silent regions (Pre-delay, Reverb Delay) so they read
+    // as intentionally empty.
     private val silenceZonePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
         color = 0x14FFFFFF.toInt()
@@ -259,10 +232,8 @@ class ReverbVisualizerView @JvmOverloads constructor(
             floatArrayOf(4f * density, 4f * density), 0f
         )
     }
-    // Dashed Bezier in the HF Damping sub-box. Same dash pattern as
-    // [centerLinePaint] but its colour is recomputed every frame from
-    // roomHFLevelDb so it tracks the HF Level visualisation alongside
-    // the bars and the main HF stream line.
+    // Dashed Bezier in the HF Damping sub-box; colour recomputed each frame from
+    // roomHFLevelDb so it tracks the HF Level visualisation.
     private val hfCurvePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         color = 0xFF666666.toInt()
@@ -271,9 +242,8 @@ class ReverbVisualizerView @JvmOverloads constructor(
             floatArrayOf(4f * density, 4f * density), 0f
         )
     }
-    // White dotted line tracing the linear (non-HF, regular) decay
-    // envelope. Round-capped, very short "on" segments + larger "off"
-    // gaps give a true dotted (rather than dashed) appearance.
+    // White dotted line tracing the linear (non-HF) decay envelope; tiny
+    // round-capped "on" segments give a dotted (not dashed) look.
     private val lfStreamPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         color = 0xFFFFFFFF.toInt()
@@ -285,10 +255,7 @@ class ReverbVisualizerView @JvmOverloads constructor(
     }
     private val hfStreamPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        // Reuses the dark-grey shade that previously coloured the tail
-        // bars before they were unified with the body shade. Keeps the
-        // HF-damped curve visually distinct from the linear LF stream
-        // without re-introducing a chromatic colour.
+        // Dark grey keeps the HF-damped curve distinct from the linear LF stream.
         color = 0xFF555555.toInt()
         strokeWidth = 1.6f * density
         pathEffect = android.graphics.DashPathEffect(
@@ -297,30 +264,24 @@ class ReverbVisualizerView @JvmOverloads constructor(
         strokeJoin = Paint.Join.ROUND
     }
     private val streamOverlayPath = Path()
-    // Early Reflections vertical-axis range — matches the Reflect (dB)
-    // slider's valueFrom/valueTo in activity_environmental_reverb.xml
-    // and the EnvironmentalReverb API's setReflectionsLevel range.
+    // Early Reflections Y-axis range — matches the Reflect (dB) slider in
+    // activity_environmental_reverb.xml and the setReflectionsLevel API range.
     private val reflectionsLevelMinDb = -90f
     private val reflectionsLevelMaxDb = 10f
 
-    // Decay vertical-axis range — matches the Reverb (dB) slider's
-    // valueFrom/valueTo (-90..+20 dB) and the API's setReverbLevel
-    // range. Y position of the Decay dot maps to reverbLevelDb.
+    // Decay Y-axis range — matches the Reverb (dB) slider (-90..+20 dB) and the
+    // setReverbLevel API range; Decay dot Y maps to reverbLevelDb.
     private val reverbLevelMinDb = -90f
-    // LVREV caps reverb level at 0 mB (it's relative attenuation, can't boost
-    // the wet above the room level) — the doc's +2000 mB is rejected, so the
-    // dot tops out at 0 dB to match what the engine actually accepts.
+    // LVREV caps reverb level at 0 mB (relative attenuation — can't boost the wet
+    // above room level); the doc's +2000 mB is rejected, so the dot tops out at 0 dB.
     private val reverbLevelMaxDb = 0f
 
-    // HF Damping (Decay HF Ratio) range — matches the Decay HF slider's
-    // valueFrom/valueTo (0.1..2.0) and the API's setDecayHFRatio range.
-    // X position of the HF dot in the sub-band maps to decayHfRatio.
+    // HF Damping range — matches the Decay HF slider (0.1..2.0) and the
+    // setDecayHFRatio API range; HF dot X maps to decayHfRatio.
     private val decayHfRatioMin = 0.1f
     private val decayHfRatioMax = 2.0f
 
-    // HF Level (Room HF Level) range — matches the API's setRoomHFLevel
-    // range (−90..0 dB). X position of the HF Level dot in its sub-box
-    // maps to roomHFLevelDb.
+    // HF Level range — matches setRoomHFLevel (−90..0 dB); dot X maps to roomHFLevelDb.
     private val roomHFLevelMinDb = -90f
     private val roomHFLevelMaxDb = 0f
 
@@ -347,18 +308,13 @@ class ReverbVisualizerView @JvmOverloads constructor(
         )
     }
 
-    // Dot is constrained to the inner half of the anti-diagonal —
-    // antiDiagFrac in [0.25, 0.75] — so the Bezier control point
-    // (= 2·dot − centre) stays inside the box and the curve never
-    // balloons past the box's edges. The dot still passes through
-    // the curve exactly at its midpoint.
+    // Dot constrained to antiDiagFrac [0.25, 0.75] so the Bezier control point
+    // (= 2·dot − centre) stays inside the box; dot passes through the curve at its midpoint.
     private val hfDotFracMin = 0.25f
     private val hfDotFracMax = 0.75f
 
-    /** Map decayHfRatio onto a position along the HF sub-box's anti-
-     *  diagonal: bottom-left-ish at ratio = min, top-right-ish at
-     *  ratio = max, geometric centre at ratio = 1. The dot's range
-     *  is restricted to [0.25, 0.75] of the anti-diagonal. */
+    /** Map decayHfRatio to a position on the HF sub-box anti-diagonal (min =
+     *  bottom-left, max = top-right, ratio 1 = centre), restricted to [0.25, 0.75]. */
     private fun decayHfRatioToDotPos(): Pair<Float, Float> {
         val b = hfDotInnerBounds()
         val ratioFrac = ((decayHfRatio - decayHfRatioMin) /
@@ -369,10 +325,8 @@ class ReverbVisualizerView @JvmOverloads constructor(
         return Pair(dotX, dotY)
     }
 
-    /** Project an arbitrary touch (x, y) onto the anti-diagonal and
-     *  convert that fraction back to a decayHfRatio value. The
-     *  projection is clamped to the dot's restricted range so the
-     *  curve always stays inside the box. */
+    /** Project a touch onto the anti-diagonal and map back to decayHfRatio;
+     *  clamped to the dot's restricted range so the curve stays inside the box. */
     private fun pointToDecayHfRatio(x: Float, y: Float): Float {
         val b = hfDotInnerBounds()
         val ex = b[2] - b[0]
@@ -387,10 +341,8 @@ class ReverbVisualizerView @JvmOverloads constructor(
         return decayHfRatioMin + ratioFrac * (decayHfRatioMax - decayHfRatioMin)
     }
 
-    /** HF Level sub-box sits in zone 2's column of the HF sub-band so
-     *  it lives directly next to the HF Damping sub-box. The dot is a
-     *  simple horizontal slider — same X-only style as the Reverb
-     *  Delay circle on the main trackline. */
+    /** HF Level sub-box in zone 2's column of the HF sub-band (next to HF
+     *  Damping); dot is an X-only slider like the Reverb Delay circle. */
     private fun roomHFLevelInnerBounds(): FloatArray {
         val r = 5.5f * density
         val dotMargin = r + 2f
@@ -446,15 +398,9 @@ class ReverbVisualizerView @JvmOverloads constructor(
     private var hfSubBandTop = 0f
     private var hfSubBandBottom = 0f
 
-    // The chart is divided into three equal-width zones across the top
-    // control line:
-    //   [Direct Sound][   Pre-delay   ][ Early Reflections ][   Decay   ]
-    //                     0..33 %           33..66 %             66..100 %
-    // The zones (and the track-line they sit on) start AFTER the
-    // Direct Sound capsule on the left, not at plotL — so the capsule
-    // doesn't overlap the pre-delay range. Each circle is constrained
-    // to its own zone with a linear param-min → max mapping; tick marks
-    // at 0/33/66/100 % mark the min/max of each zone.
+    // Top control line: equal-width zones starting AFTER the Direct Sound capsule
+    // (not plotL) so the capsule doesn't overlap the pre-delay range. Each circle
+    // is clamped to its zone with a linear param min→max mapping; ticks mark zone edges.
     private val preDelayMinMs = 0f
     private val preDelayMaxMs = 300f
     private val earlyMinMs = 0f
@@ -467,15 +413,9 @@ class ReverbVisualizerView @JvmOverloads constructor(
     private val decayMaxMs = 7000f
     private val zoneCount = 4
 
-    // Direct Sound capsule layout — shared between drawBars (which
-    // draws the capsule itself) and zonesLeft() (which uses the
-    // capsule's right edge as the left bound of the track-line).
-    // edgeInset gives the capsule a small breathing margin from the
-    // card's left and bottom edges so its full outline is clearly
-    // visible. The Pre-delay zone starts a tiny 2 dp gap past the
-    // capsule's right edge so the collapsed Early-Reflections dotted
-    // line (drawn at preDelayX when both sliders are at min) reads
-    // clearly instead of being hidden behind the capsule's outline.
+    // Direct Sound capsule layout — shared by drawBars and zonesLeft(). edgeInset
+    // keeps the outline off the card edges; the Pre-delay zone starts 2 dp past the
+    // capsule so the collapsed Early-Reflections dotted line isn't hidden behind it.
     private val directSoundBarW = 18f * density
     private val directSoundEdgeInset = 4f * density
     private val directSoundGap = 2f * density
@@ -509,10 +449,8 @@ class ReverbVisualizerView @JvmOverloads constructor(
         val frac = ((x - zoneStart(1)) / (zoneEnd(1) - zoneStart(1))).coerceIn(0f, 1f)
         return earlyMinMs + frac * (earlyMaxMs - earlyMinMs)
     }
-    // The "Early Reflections" box spans zones 0-1 (merging the old pre-delay +
-    // early dots). Its dot is 2-D: X maps to reflectionsDelay (onset, the
-    // [preDelayMinMs, preDelayMaxMs] range) across the box width, Y maps to
-    // reflectionsLevel — exactly mirroring the Reverb Tail box.
+    // "Early Reflections" box spans zones 0-1; its 2-D dot maps X → reflectionsDelay
+    // (preDelayMin..Max range) and Y → reflectionsLevel, mirroring the Reverb Tail box.
     private fun earlyBoxDelayToX(ms: Float): Float {
         val frac = ((ms - preDelayMinMs) / (preDelayMaxMs - preDelayMinMs)).coerceIn(0f, 1f)
         return zoneStart(0) + frac * (zoneEnd(1) - zoneStart(0))
@@ -545,8 +483,7 @@ class ReverbVisualizerView @JvmOverloads constructor(
         return decayMinMs + frac * (decayMaxMs - decayMinMs)
     }
 
-    // Legacy linear-time helpers — only used to cache the (now-unused)
-    // curve-anchor handle positions. Bars no longer go through these.
+    // Legacy linear-time helpers — only cache the unused curve-anchor handle positions.
     private fun timeToX(ms: Float) = plotL + (ms / xMaxMs) * (plotR - plotL)
     private fun xToTime(x: Float) = ((x - plotL) / (plotR - plotL)) * xMaxMs
     private fun dbToAmp01(db: Float) = ((db + 90f) / 90f).coerceIn(0f, 1f)
@@ -561,20 +498,13 @@ class ReverbVisualizerView @JvmOverloads constructor(
         val w = width.toFloat(); val h = height.toFloat()
         if (w <= 0f || h <= 0f) return
 
-        // The three control circles sit on a single horizontal track-
-        // line near the bottom of a top control band. Above the line
-        // (still inside the band) sit the four zone labels, each
-        // centred between its zone's min/max tick marks. The bars +
-        // envelope occupy the rest of the height below the band, with
-        // the bottom and left edges flush against the card and the
-        // right edge inset by 1 dp so all four zones share the same
-        // narrower right edge.
+        // Control circles sit on a horizontal track-line in the top band with zone
+        // labels above; bars + envelope fill the rest, flush left/bottom, right edge
+        // inset so all zones share the same narrower right edge.
         val sideMargin = 0f
         val bottomMargin = 0f
         val rightMargin = 4f * density
-        // Bands are 25 % shorter than before so the boxes (Early Refl,
-        // Decay, HF Damping, HF Level) are tighter and the graph below
-        // gets more breathing room. Was 90 dp each; now 68 dp.
+        // 68 dp bands keep the control boxes tight and give the graph more room.
         val mainBandH = 68f * density
         val hfSubBandH = 68f * density
         val topBandH = mainBandH + hfSubBandH
@@ -587,9 +517,8 @@ class ReverbVisualizerView @JvmOverloads constructor(
         hfSubBandTop = mainBandH + 2f * density
         hfSubBandBottom = topBandH - 2f * density
 
-        // Bars use a fixed layout (don't move with parameters); circles
-        // slide on a stable log-ms axis below. xMaxMs is kept around for
-        // legacy handle anchor caching but no longer drives bar layout.
+        // Bars use a fixed layout; circles slide on a stable log-ms axis. xMaxMs
+        // only feeds legacy handle-anchor caching, not bar layout.
         val earlyDurationMs = earlyReflectionsWidthMs
         val decayDurationMs = decayTimeMs
         xMaxMs = (preDelayMaxMs + earlyDurationMs + decayDurationMs + 200f)
@@ -612,23 +541,13 @@ class ReverbVisualizerView @JvmOverloads constructor(
         drawHandles(canvas)
     }
 
-    /** Draws the HF Damping sub-box directly below the Decay zone box.
-     *  The dot rides the box's ANTI-DIAGONAL — bottom-left at ratio
-     *  = min, top-right at ratio = max, centre = ratio 1.0 (linear).
-     *  The curve from (innerLeft, innerTop) to (innerRight, innerBottom)
-     *  always passes through the dot at its midpoint (t = 0.5), so the
-     *  same gesture both slides the dot along the diagonal AND keeps
-     *  it on the curve as the curve flexes. */
+    /** HF Damping sub-box below the Decay zone: dot rides the anti-diagonal
+     *  (bottom-left = min ratio, top-right = max, centre = 1.0); the curve always
+     *  passes through the dot at t = 0.5, so one gesture drives both. */
     private val hfCurvePath = Path()
-    /** Two amplitude-vs-time overlays in the decay zone:
-     *    - LF stream (slate grey, dashed) → linear baseline. Doesn't
-     *      bend with HF damping; represents the LF half of the tail
-     *      that decays at the standard `decayTime` rate.
-     *    - HF stream (amber, dashed) → bends with `decayHfRatio`.
-     *      Drops below the LF line for ratio < 1 (HF dies fast),
-     *      stays above it for ratio > 1 (HF lingers).
-     *  Together these reveal the "two streams" the API actually
-     *  tracks. The bars below are the perceived combined tail. */
+    /** Decay-zone overlays: LF stream = linear baseline at the `decayTime` rate;
+     *  HF stream bends with `decayHfRatio` (below LF for ratio < 1, above for > 1)
+     *  — the two streams the API actually tracks. Bars below = perceived combined tail. */
     private fun drawTailStreamOverlays(
         c: Canvas,
         tailStartX: Float,
@@ -640,9 +559,7 @@ class ReverbVisualizerView @JvmOverloads constructor(
     ) {
         val nSamples = 32
 
-        // Linear (regular) decay — white dotted line tracing the
-        // un-damped envelope so the user can see the linear reference
-        // even when the HF curve dominates the bar shapes.
+        // Linear decay — white dotted reference line for the un-damped envelope.
         streamOverlayPath.reset()
         for (i in 0..nSamples) {
             val zoneFrac = i.toFloat() / nSamples
@@ -665,11 +582,8 @@ class ReverbVisualizerView @JvmOverloads constructor(
         c.drawPath(streamOverlayPath, hfStreamPaint)
     }
 
-    /** HF Level — sits in zone 2's column of the HF sub-band. No
-     *  outline box — just a horizontal trackline with a dot, matching
-     *  the Reverb Delay segment of the main trackline in length:
-     *  the line spans the full zone width tick-to-tick (zoneStart(2)
-     *  → zoneEnd(2)), with the dot clamped a small dot-margin inside.
+    /** HF Level — zone 2's column of the HF sub-band. No outline box, just a
+     *  trackline spanning the zone tick-to-tick with the dot clamped inside.
      *  Left = −90 dB (HF cut), right = 0 dB (no cut). */
     private fun drawHfLevelSubBox(c: Canvas) {
         val left = zoneStart(2)
@@ -719,18 +633,11 @@ class ReverbVisualizerView @JvmOverloads constructor(
         val centerY = (innerTop + innerBottom) / 2f
         val (dotX, dotY) = decayHfRatioToDotPos()
 
-        // Anti-diagonal "rail" the dot slides along — uses the same
-        // semi-transparent grey [regionDividerPaint] as every other
-        // trackline (Pre-delay, Reverb Delay, HF Level…) so all the
-        // dot rails read as one consistent reference colour.
+        // Anti-diagonal rail — same [regionDividerPaint] grey as every other trackline.
         c.drawLine(innerLeft, innerBottom, innerRight, innerTop, regionDividerPaint)
 
-        // Quadratic Bezier with control point Cx = 2·dot − centre,
-        // Cy = 2·dot − centre — chosen so B(0.5) = (dotX, dotY) and
-        // the curve passes EXACTLY through the dot at its midpoint.
-        // Because the dot's range is restricted to [0.25, 0.75] of
-        // the anti-diagonal, the control point is mathematically
-        // guaranteed to stay inside the box, so the curve does too.
+        // Quadratic Bezier with control point C = 2·dot − centre so B(0.5) = dot;
+        // the dot's [0.25, 0.75] range guarantees C (and the curve) stay in the box.
         val cx = 2f * dotX - centerX
         val cy = 2f * dotY - centerY
         hfCurvePath.reset()
@@ -744,23 +651,14 @@ class ReverbVisualizerView @JvmOverloads constructor(
         c.drawCircle(dotX, dotY, r, handleStrokePaint)
     }
 
-    /** Vertical dotted line at the start of the Reverb Delay zone —
-     *  serves as the "centre divider" of the graph and marks where
-     *  the Reverb Delay drag range begins. */
+    /** Vertical dotted centre divider — marks where the Reverb Delay drag range begins. */
     private fun drawCenterLine(c: Canvas) {
         val centerX = zoneStart(2)
         c.drawLine(centerX, plotT, centerX, plotB, centerLinePaint)
     }
 
-    /** Faint shaded silence regions whose WIDTH tracks the Pre-delay
-     *  and Reverb Delay sliders, with their TOP following the envelope
-     *  line so the shading sits cleanly beneath the diagonal envelope
-     *  rather than being a flat-topped rectangle:
-     *    - Pre-delay shading : trapezoid bounded by zoneStart(0) on the
-     *      left, the Pre-delay circle's X on the right, the envelope
-     *      on top, and plotB on the bottom.
-     *    - Reverb Delay shading : same shape, but bounded by
-     *      zoneStart(2) and the Reverb Delay circle's X. */
+    /** Shaded silence trapezoids: width tracks the Pre-delay / Reverb Delay
+     *  sliders, top follows the envelope line (not a flat rectangle). */
     private fun drawSilenceZones(c: Canvas) {
         val preDelayX = preDelayToX(reflectionsDelayMs)
         if (preDelayX > zoneStart(0)) {
@@ -785,19 +683,16 @@ class ReverbVisualizerView @JvmOverloads constructor(
         c.drawPath(silencePath, silenceZonePaint)
     }
 
-    /** Card outlines around the Early Reflections (zone 1) and Decay
-     *  (zone 3) zones. Both boxes are the SAME width because plotR is
-     *  inset globally by 1 dp — the Decay box's right edge no longer
-     *  needs a special inset hack. */
+    /** Card outlines around Early Reflections and Decay; both boxes share the same
+     *  width because plotR is inset globally by 1 dp. */
     private fun drawZoneCards(c: Canvas) {
         val cornerR = 8f * density
         val topPad = 2f * density
         val bottomPad = 2f * density
         val top = controlBandTop + topPad
         val bottom = controlBandBottom - bottomPad
-        // Two 2-D control boxes:
-        //   • Early Reflections — spans zones 0-1 (onset delay × level)
-        //   • Reverb Tail       — zone 3 (decay time × level)
+        // Early Reflections spans zones 0-1 (onset × level); Reverb Tail is zone 3
+        // (decay time × level).
         c.drawRoundRect(zoneStart(0), top, zoneEnd(1), bottom, cornerR, cornerR, zoneCardPaint)
         c.drawRoundRect(zoneStart(3), top, zoneEnd(3), bottom, cornerR, cornerR, zoneCardPaint)
     }
@@ -845,32 +740,23 @@ class ReverbVisualizerView @JvmOverloads constructor(
     }
 
     private fun drawTimeAxisLine(c: Canvas) {
-        // Single horizontal track-line across the top band that the
-        // three circles sit on. Starts at the right edge of the Direct
-        // Sound capsule (zonesLeft()) instead of plotL, so the line
-        // doesn't extend "past" / behind the capsule. Sits low in the
-        // band so the zone labels have room to live ABOVE the line,
-        // centred between each zone's min/max tick marks.
+        // Track-line starts at the Direct Sound capsule's right edge (zonesLeft())
+        // so it doesn't run behind the capsule; zone labels live above the line.
         val lineY = trackLineY()
         val lineLeft = zonesLeft()
         c.drawLine(lineLeft, lineY, plotR, lineY, regionDividerPaint)
         val tickHalf = 5f * density
         for (i in 0..zoneCount) {
-            // i == 1 is the old zone-0/zone-1 boundary, now the CENTRE of the
-            // merged "Early Reflections" box — skip it so the box has no stray
-            // tick down its middle.
+            // Skip i == 1: it's the centre of the merged Early Reflections box —
+            // no stray tick down its middle.
             if (i == 1) continue
             val x = lineLeft + (plotR - lineLeft) * (i.toFloat() / zoneCount)
             c.drawLine(x, lineY - tickHalf, x, lineY + tickHalf, regionDividerPaint)
         }
 
-        // Zone labels — fixed positions, NOT attached to the dragged
-        // circles. Each label is centred between its zone's min/max
-        // ticks and pinned to the TOP of the band so every indicator
-        // (pre-delay, early reflections, reverb delay, decay, hf level,
-        // hf damping) reads as a top-centred caption for its area.
-        // "Early Reflections" now spans zones 0-1 (merged onset + level box);
-        // "Reverb Delay" is zone 2; "Reverb Tail" is zone 3.
+        // Fixed zone labels (not attached to dragged circles), centred between each
+        // zone's ticks, pinned to the band top. Early Reflections = zones 0-1;
+        // Reverb Delay = zone 2; Reverb Tail = zone 3.
         val labelY = controlBandTop + 4f * density - controlLabelPaint.ascent()
         c.drawText("Early Reflections", (zoneStart(0) + zoneEnd(1)) / 2f, labelY, controlLabelPaint)
         c.drawText("Reverb Delay", (zoneStart(2) + zoneEnd(2)) / 2f, labelY, controlLabelPaint)
@@ -878,9 +764,7 @@ class ReverbVisualizerView @JvmOverloads constructor(
     }
 
     private fun trackLineY(): Float {
-        // The track-line sits centred vertically in the top band, so
-        // there's equal breathing room above (label area) and below
-        // (between the line and the bars).
+        // Centred vertically in the band: equal room for labels above and bars below.
         return (controlBandTop + controlBandBottom) / 2f
     }
 
@@ -889,50 +773,34 @@ class ReverbVisualizerView @JvmOverloads constructor(
     }
 
     private fun drawGhostEnvelope(c: Canvas, decayDurationMs: Float) {
-        // The envelope is the EXACT plot-rect diagonal — top-left to
-        // bottom-right. Same line every bar's top samples through
-        // [envelopeAtX], so bars can never overshoot it. The Direct
-        // Sound capsule's bg fill masks the portion of the line that
-        // passes inside the capsule, so visually the line still reads
-        // as "attaching" to the top of the capsule.
+        // Envelope is the exact plot-rect diagonal; bars sample the same line via
+        // [envelopeAtX] so they never overshoot. The capsule's bg fill masks the
+        // line inside it, so it reads as attaching to the capsule's top.
         ghostPath.reset()
         ghostPath.moveTo(plotL, plotT)
         ghostPath.lineTo(plotR, plotB)
         c.drawPath(ghostPath, ghostEnvelopePaint)
     }
 
-    /** Linear amplitude (0..1) at a given x: 1.0 at the left edge,
-     *  0.0 at the right edge. Bars sample this so their heights drop
-     *  top-left to bottom-right along the SAME line drawn by
-     *  [drawGhostEnvelope] — guaranteed upper bound. */
+    /** Linear amplitude 0..1 at x (1.0 left edge → 0.0 right edge) — the same line
+     *  drawn by [drawGhostEnvelope], so it's a guaranteed upper bound for bars. */
     private fun envelopeAtX(x: Float): Float {
         val plotW = (plotR - plotL).coerceAtLeast(1f)
         return (1f - (x - plotL) / plotW).coerceIn(0f, 1f)
     }
 
     private fun drawBars(c: Canvas, earlyDurationMs: Float, decayDurationMs: Float) {
-        // Bars are anchored to the same X positions as the bottom-row
-        // circles, so dragging a circle visibly slides its region:
-        //   Source     : always at plotL
-        //   Early refl : Pre-delay circle X → Early Refl circle X
-        //   Body+tail  : Early Refl circle X → Decay circle X
-        // Heights conform to the fixed top-left → bottom-right envelope
-        // (envelopeAtX). Every other bar is scaled shorter (alt-bar
-        // shrink) to mimic the constructive/destructive interference
-        // pattern of overlapping reflections in a real reverb tail.
+        // Bars anchor to the control-circle Xs (Source at plotL; early refl from
+        // Pre-delay X; body+tail from Early Refl X to Decay X) so dragging slides
+        // regions. Heights follow envelopeAtX; every other bar shrunk to mimic
+        // reflection interference in a real reverb tail.
         val altShrink = 0.65f
 
         val preDelayX = preDelayToX(reflectionsDelayMs)
 
-        // 1. Source signal — hollow "doughnut" capsule near the card's
-        //    bottom-left corner with a small inset so its outline is
-        //    fully visible (avoids clipping at the card's rounded
-        //    corners). The capsule's height stays the same as before;
-        //    instead, the envelope line is anchored to start at the
-        //    capsule's topmost point so the line attaches to the top
-        //    of the card. The interior of the capsule is filled with
-        //    the card's bg colour to mask the portion of the line that
-        //    passes inside the capsule.
+        // 1. Source signal — hollow capsule at bottom-left, inset so its outline
+        //    clears the card's rounded corners; envelope anchors at the capsule's
+        //    top, interior bg-filled to mask the line passing inside.
         run {
             val barW = directSoundBarW
             val cornerR = barW / 2f  // fully rounded ends → capsule
@@ -954,24 +822,12 @@ class ReverbVisualizerView @JvmOverloads constructor(
             c.restore()
         }
 
-        // 2. Early reflections — cluster anchored at Pre-delay's X
-        //    (preDelayX). Visual width is proportional to early-refl
-        //    duration, scaled to the AVAILABLE space from preDelayX
-        //    out to the end of zone 1 (the early-refl zone). So:
-        //      - earlyWidth=max + preDelay=min → cluster fills zones
-        //        0 + 1 (pre-delay zone is "consumed" since there's no
-        //        gap before reflections start)
-        //      - earlyWidth=max + preDelay=max → cluster fills zone 1
-        //        only (full pre-delay gap pushes the cluster right)
-        //      - earlyWidth=min + any preDelay → cluster collapses to
-        //        a single overlapping line at preDelayX (no snap-open)
+        // 2. Early reflections — cluster anchored at Pre-delay's X (preDelayX).
         run {
             val refLevel = dbToAmp01(reflectionsLevelDb)
             val earlyStartX = preDelayX
-            // Fixed visual length: the early-reflections cluster is always 1/8
-            // of the graph width regardless of onset position — it just slides
-            // right as the Pre-delay (onset) increases. Clamped to the right
-            // edge so it never overruns the plot.
+            // Cluster length fixed at 1/8 of graph width; slides right with onset,
+            // clamped so it never overruns the plot.
             val earlyClusterLength = (plotR - plotL) / 8f
             val earlyEndX = (earlyStartX + earlyClusterLength)
                 .coerceAtMost(plotR)
@@ -990,20 +846,10 @@ class ReverbVisualizerView @JvmOverloads constructor(
             }
         }
 
-        // 3. Reverb body + decay tail — starts at the Reverb Delay
-        //    circle and ends at the Decay circle. When Reverb Delay
-        //    is 0, the tail naturally extends back into zone 2 (the
-        //    Reverb Delay zone) — there's no gap before the tail, so
-        //    the decay fills both the Reverb Delay and Decay zones.
-        //    As Reverb Delay grows, the gap re-opens and the tail
-        //    retreats into zone 3. Body = first 40 %, tail = remaining 60 %.
-        // Tail visual width is proportional to decay duration, scaled
-        // to the AVAILABLE space from tailStartX out to plotR. So:
-        //   - decay=max + reverbDelay=min → tail fills 50%..100%
-        //     (zone 2 + zone 3, all the way to the graph's right edge)
-        //   - decay=max + reverbDelay=max → tail fills zone 3 only
-        //   - decay=min + any reverbDelay → tail collapses to a single
-        //     line at tailStartX (no snap-open).
+        // 3. Reverb body + tail — Reverb Delay circle X → Decay circle X. At
+        //    reverbDelay=0 the tail extends back into zone 2. Body = first 40 %,
+        //    tail = 60 %. Tail width ∝ decay over the space to plotR; at decay=min
+        //    it collapses to a single line at tailStartX (no snap-open).
         val tailStartX = revDelayToX(reverbDelayMs)
         val decayFrac = ((decayTimeMs - decayMinMs) /
             (decayMaxMs - decayMinMs)).coerceIn(0f, 1f)
@@ -1015,26 +861,14 @@ class ReverbVisualizerView @JvmOverloads constructor(
         val nTail = 30
         val bodyTailSplit = 0.40f
         val tailCollapsed = decayTimeMs <= decayMinMs + 0.5f
-        // Bars decay from startAmp toward ZERO over the tail's span,
-        // shaped by HF damping. This mimics exponential decay so the
-        // bars look natural at any decay value, not just at max:
-        //   - ratio = 1 → linear from startAmp to 0
-        //   - ratio < 1 → concave-up, drops fast then plateaus near 0
-        //     (HF dies — looks exponential)
-        //   - ratio > 1 → concave-down, sustains then falls to 0
-        // The bars' bottom edge always reaches ~0 at tailEndX,
-        // regardless of where tailEndX sits on the chart.
+        // Bars decay from startAmp to ~0 at tailEndX, shaped by HF damping:
+        // ratio 1 → linear; <1 → concave-up (HF dies fast); >1 → concave-down (sustains).
         val tailSpan = (tailEndX - tailStartX).coerceAtLeast(1f)
         val ampAtTailStart = envelopeAtX(tailStartX)
         val hfDampingExp = (1f / decayHfRatio.coerceIn(0.1f, 2f)).coerceIn(0.5f, 2f)
-        // Modulate every HF-related grey by HF Level (roomHFLevelDb).
-        // At 0 dB (no shelf cut) the HF parts reach 0xBB — the same
-        // bright shade used for the regular decay (bodyBarColor) — so
-        // a fully open HF visually merges with the bulk signal. At
-        // −90 dB they slide down to 0x40 (still readable against the
-        // 0x1A background). All three HF paints share the same value
-        // so the dashed overlay, the bottom shared region, and the
-        // sustained-HF excess move together.
+        // HF greys scale with roomHFLevelDb: 0xBB at 0 dB (merges with bodyBarColor)
+        // down to 0x40 at −90 dB (still readable on the 0x1A bg). All HF paints
+        // share the value so overlay, base region and excess move together.
         val hfLevel01 = ((roomHFLevelDb + 90f) / 90f).coerceIn(0f, 1f)
         val hfGrey = (0x40 + (0xBB - 0x40) * hfLevel01).toInt().coerceIn(0, 255)
         val hfColor = (0xFF shl 24) or (hfGrey shl 16) or (hfGrey shl 8) or hfGrey
@@ -1042,18 +876,10 @@ class ReverbVisualizerView @JvmOverloads constructor(
         hfExcessPaint.color = hfColor
         hfStreamPaint.color = hfColor
         hfCurvePaint.color = hfColor
-        // Each bar is split into up to three coloured segments based
-        // on the relationship between the linear and HF-damped curves:
-        //   - 0 → min(lin, HF)  : dark grey 555555 (the HF zone — both
-        //     curves cover this height, so HF energy is present here)
-        //   - min → max with linAmp > hfAmp (HF damped) : 888888, the
-        //     bulk-decay region above the HF curve
-        //   - min → max with hfAmp > linAmp (HF sustained) : 0xFFAAAAAA,
-        //     the HF excess sitting above the linear envelope
-        // Both linAmp and hfAmp are computed without the alt-shrink
-        // applied to the early reflections cluster, so the bar tops
-        // trace the smooth dashed-curve overlays exactly — the colour
-        // boundary now lands ON the HF dotted line in the damped case.
+        // Bar segments: 0→min(lin,HF) uses hfBarPaint (HF energy present); min→max
+        // uses bodyBarPaint when lin > HF (bulk decay) or hfExcessPaint when HF > lin.
+        // linAmp/hfAmp skip the alt-shrink so bar tops trace the dashed overlays
+        // exactly — the colour boundary lands on the HF dotted line.
         for (i in 0 until nTail) {
             val fracT = (i + 0.5f) / nTail
             val x = tailStartX + fracT * (tailEndX - tailStartX)
@@ -1081,16 +907,14 @@ class ReverbVisualizerView @JvmOverloads constructor(
             }
         }
 
-        // Draw the two-stream overlays so the API's actual model
-        // (LF decay + HF decay tracked separately) is visible.
+        // Two-stream overlays show the API's model: LF + HF decay tracked separately.
         if (!tailCollapsed) {
             drawTailStreamOverlays(c, tailStartX, tailEndX, tailSpan,
                 ampAtTailStart, tailLevel, hfDampingExp)
         }
 
-        // Curve-anchor handles aren't drawn anymore; keep cached anchor
-        // positions on the legacy linear-time axis for any future re-
-        // enable.
+        // Curve-anchor handles aren't drawn; positions cached on the legacy
+        // linear-time axis for any future re-enable.
         val refl = reflectionsDelayMs
         val refLevel = dbToAmp01(reflectionsLevelDb)
         val roomLevel = dbToAmp01(roomLevelDb)
@@ -1108,10 +932,8 @@ class ReverbVisualizerView @JvmOverloads constructor(
     }
 
     private fun drawFrame(c: Canvas) {
-        // No baseline drawn — the bars rise from the bottom of the
-        // plot rect, which already provides a clean visual bottom
-        // edge via the card's outline. A horizontal baseline line
-        // here added an unwanted white-ish stripe under the graph.
+        // No baseline — the card outline provides the bottom edge; a drawn
+        // baseline added an unwanted white-ish stripe under the graph.
     }
 
     private fun drawRegionLabels(c: Canvas) {
@@ -1144,29 +966,16 @@ class ReverbVisualizerView @JvmOverloads constructor(
     }
 
     private fun drawHandles(c: Canvas) {
-        // Curve-anchor handles intentionally not drawn — only the two
-        // bottom-row circles (Pre-delay, Early Reflections) are user-
-        // facing right now. [drawControlCircles] renders those.
+        // Curve-anchor handles intentionally not drawn; [drawControlCircles]
+        // renders the user-facing dots.
     }
 
     private fun drawControlCircles(c: Canvas) {
-        // Four top-row thumbs, each constrained to its own quarter of
-        // the chart width with a linear param-min → param-max mapping:
-        //   Pre-delay     : 0..25 %   zone, 0..300 ms
-        //   Early Refl    : 25..50 %  zone, 0..1000 ms
-        //   Reverb Delay  : 50..75 %  zone, 0..100 ms
-        //   Decay         : 75..100 % zone, 100..20 000 ms
-        // The thumbs are hollow circles styled the same as the X/Y dot
-        // in the density/diffusion view (bg-coloured fill so the track-
-        // line punches through, light-grey ring on top), but a tiny bit
-        // smaller. Zone LABELS are drawn separately, anchored to the
-        // zone midpoints; see [drawTimeAxisLine].
-        //
-        // Each circle is clamped INSIDE its zone (margin = r + 2 px) so
-        // it never visually pokes past its tick mark — same trick the
-        // X/Y graph's dot uses. The underlying parameter still spans
-        // its full min..max range; only the circle's visible position
-        // is inset.
+        // Top-row thumbs, one per quarter zone with linear param mapping:
+        // Pre-delay 0..300 ms, Early Refl 0..1000 ms, Reverb Delay 0..100 ms,
+        // Decay 100..20 000 ms. Styled like the density/diffusion X/Y dot.
+        // Each circle is clamped inside its zone (margin = r + 2 px) so it never
+        // pokes past its tick; the parameter still spans full min..max.
         val cy = trackLineY()
         val r = 5.5f * density
         val dotMargin = r + 2f
@@ -1178,10 +987,8 @@ class ReverbVisualizerView @JvmOverloads constructor(
         val revDelayX = clampInZone(2, revDelayToX(reverbDelayMs))
         val decayX = clampInZone(3, decayToX(decayTimeMs))
 
-        // Early & Decay zones support 2-D drag — their dot Y can leave
-        // the trackline. Pre-delay & Reverb Delay stay on the line.
-        // Both dot Ys are *derived* from their dB params so each dot
-        // and the matching dB slider stay in sync automatically.
+        // Early & Decay dots are 2-D (Y leaves the trackline); their Y derives from
+        // the dB params so dot and matching dB slider stay in sync automatically.
         val earlyY = reflectionsLevelDbToY()
         val decayY = reverbLevelDbToY()
 
@@ -1204,15 +1011,10 @@ class ReverbVisualizerView @JvmOverloads constructor(
     }
 
     /**
-     * Draws the soft grey halo around a dot when it is currently
-     * grabbed (or recently released). Alpha is interpolated from the
-     * elapsed time since [rippleStateChangeMs] so the halo fades in
-     * smoothly on touch and fades out smoothly on release rather than
-     * snapping on/off. Only the [lastGrabbedHandle] receives a halo.
-     *
-     * Schedules another animation frame via [postInvalidateOnAnimation]
-     * while the alpha is still in motion, so the caller doesn't have to
-     * worry about driving the animation loop.
+     * Halo around the grabbed (or just-released) dot; alpha interpolated from
+     * [rippleStateChangeMs] so it fades rather than snapping. Only
+     * [lastGrabbedHandle] gets a halo. Self-drives animation frames via
+     * [postInvalidateOnAnimation] while the alpha is in motion.
      */
     private fun drawRippleHaloFor(
         c: Canvas,
@@ -1233,9 +1035,7 @@ class ReverbVisualizerView @JvmOverloads constructor(
             animating = alpha > 0f
         }
         if (alpha > 0.01f) {
-            // Halo radius grows with the dot a touch — same hollow
-            // ring vibe as the dot itself, scaled smaller than the
-            // bigger ripples used elsewhere in the app.
+            // Halo slightly larger than the dot; smaller than ripples used elsewhere.
             val haloR = dotR + 6f * density
             // Peak alpha 0.32 keeps the halo visible without clobbering
             // the dot or the trackline behind it.
@@ -1341,26 +1141,21 @@ class ReverbVisualizerView @JvmOverloads constructor(
                 cb?.invoke(Param.DECAY_TIME, newDecay)
             }
             Handle.SOURCE_CIRCLE -> {
-                // Vertical drag adjusts Room Level. The Y coordinate
-                // is read against the plot's Y range, not the control
-                // band itself — drag up from the circle to raise the
-                // source-signal bar.
+                // Vertical drag adjusts Room Level; Y is read against the plot's
+                // range, not the control band.
                 val newDb = amp01ToDb(yToAmp01(y)).coerceIn(-90f, 0f)
                 roomLevelDb = newDb
                 cb?.invoke(Param.ROOM_LEVEL, newDb)
             }
             Handle.PREDELAY_CIRCLE -> {
-                // Constrained to the 0..25 % zone; X maps linearly
-                // onto reflectionsDelayMs in [0, 300] ms.
+                // X maps linearly onto reflectionsDelayMs in [0, 300] ms.
                 val newDelay = xToPreDelay(x)
                 reflectionsDelayMs = newDelay
                 cb?.invoke(Param.REFLECTIONS_DELAY, newDelay)
             }
             Handle.EARLY_CIRCLE -> {
-                // 2-D control in the merged "Early Reflections" box (mirrors the
-                // Reverb Tail box): X → reflectionsDelay (onset, 0..300 ms),
-                // Y → reflectionsLevelDb [-90, +10] dB. This folds in the old
-                // separate pre-delay dot.
+                // 2-D: X → reflectionsDelay (onset, 0..300 ms), Y →
+                // reflectionsLevelDb [-90, +10] dB (mirrors Reverb Tail box).
                 val newDelay = xEarlyBoxToDelay(x).coerceIn(0f, 300f)
                 val newDb = yToReflectionsLevelDb(y)
                 reflectionsDelayMs = newDelay
@@ -1369,19 +1164,14 @@ class ReverbVisualizerView @JvmOverloads constructor(
                 cb?.invoke(Param.REFLECTIONS_LEVEL, newDb)
             }
             Handle.REVDELAY_CIRCLE -> {
-                // Constrained to the 50..75 % zone; X maps linearly
-                // onto reverbDelayMs in [0, 100] ms.
+                // X maps linearly onto reverbDelayMs in [0, 100] ms.
                 val newDelay = xToRevDelay(x)
                 reverbDelayMs = newDelay
                 cb?.invoke(Param.REVERB_DELAY, newDelay)
             }
             Handle.DECAY_CIRCLE -> {
-                // Constrained to the 75..100 % zone. X maps linearly
-                // onto decayTimeMs in [100, 20 000] ms; Y maps onto
-                // reverbLevelDb in [-90, +20] dB (top = louder tail,
-                // bottom = quieter). Dragging the dot up makes the
-                // late-tail bars taller and the Reverb (dB) slider
-                // tracks the dot in real time.
+                // X → decayTimeMs [100, 20 000] ms; Y → reverbLevelDb [-90, +20] dB
+                // (top = louder). The Reverb (dB) slider tracks the dot live.
                 val newDecay = xToDecay(x)
                 decayTimeMs = newDecay
                 cb?.invoke(Param.DECAY_TIME, newDecay)
@@ -1390,20 +1180,14 @@ class ReverbVisualizerView @JvmOverloads constructor(
                 cb?.invoke(Param.REVERB_LEVEL, newDb)
             }
             Handle.HF_DAMPING_CIRCLE -> {
-                // HF Damping dot rides the box's ANTI-DIAGONAL. The
-                // touch position is projected onto the diagonal and
-                // that projection's fraction maps to decayHfRatio in
-                // [0.1, 2.0]. Bottom-left = ratio min (HF dies, curve
-                // bows down). Top-right = ratio max (HF sustains,
-                // curve bows up). Centre = ratio 1.0 = straight line.
+                // Touch projected onto the anti-diagonal → decayHfRatio [0.1, 2.0]:
+                // bottom-left = min (HF dies), top-right = max (HF sustains), centre = 1.0.
                 val newRatio = pointToDecayHfRatio(x, y)
                 decayHfRatio = newRatio
                 cb?.invoke(Param.DECAY_HF, newRatio)
             }
             Handle.HF_LEVEL_CIRCLE -> {
-                // HF Level dot — horizontal slide in zone 2's column
-                // of the HF sub-band. Maps X onto roomHFLevelDb in
-                // [-90, 0] dB.
+                // Horizontal slide; X → roomHFLevelDb [-90, 0] dB.
                 val newDb = xToRoomHFLevel(x)
                 roomHFLevelDb = newDb
                 cb?.invoke(Param.ROOM_HF_LEVEL, newDb)

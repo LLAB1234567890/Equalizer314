@@ -12,18 +12,12 @@ import android.widget.TextView
 import java.lang.ref.WeakReference
 
 /**
- * TV Mode touch lock (issues #35/#55), app-wide. While a remote is connected
- * in Server mode, EVERY resumed activity gets a barely-dimmed full-screen
- * touch blocker with a card-width "Remote Controlled" pill in the header
- * area — the UI stays visible and animates with the remote's changes, but
- * local input is eaten on whatever screen the remote navigates to.
- *
- * Also the app's screen tracker: every activity resume records the top
- * screen in [TvRemoteHub.topScreen] and nudges a nav sync, which is what
- * lets the peer follow navigation into MBC / Limiter / settings screens.
- *
- * Hidden escape: long-press anywhere to take control (the lock re-arms on
- * the remote's next change).
+ * App-wide TV Mode touch lock (issues #35/#55): while a remote is connected
+ * in Server mode, every resumed activity gets a dimmed touch blocker + a
+ * "Remote Controlled" pill; UI stays visible/animating, local input eaten.
+ * Also the screen tracker: each resume records [TvRemoteHub.topScreen] and
+ * nudges a nav sync (peer screen-follow). Long-press = take control (lock
+ * re-arms on the remote's next change).
  */
 object RemoteScrim {
 

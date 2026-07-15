@@ -10,14 +10,11 @@ class BiquadFilter(
     var frequency: Float,
     var gain: Float,
     var filterType: FilterType,
-    // Default to 48000 Hz — what virtually every modern Android device's
-    // audio HAL runs at. The audio-path instances (created via
-    // EqStateManager) override this with the actual device rate from
-    // AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE; utility callers (preset
-    // import, target curve fitting, auto-EQ) use the default since they
-    // only compute response curves for visualization and the per-band-
-    // gain pipeline doesn't care about the design rate beyond <1 dB
-    // accuracy in the bass region.
+    // Default 48000 Hz = the audio HAL rate on virtually every modern Android
+    // device. Audio-path instances (via EqStateManager) override with the actual
+    // rate from AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE; utility callers (preset
+    // import, target-curve fitting, auto-EQ) use the default (viz-only response
+    // curves; per-band-gain pipeline is <1 dB off in the bass at worst).
     private val sampleRate: Int = 48000,
     var q: Double = 0.707  // Q factor (0.1 to 10.0, default Butterworth)
 ) {
@@ -75,9 +72,8 @@ class BiquadFilter(
     }
 
     private fun calculateCoefficients() {
-        // Raw omega — no bilinear pre-warping for any filter type.
-        // Pre-warping uses tan() which diverges near Nyquist, causing
-        // warped/distorted curves at high frequencies. Raw omega avoids this.
+        // Raw omega — no bilinear pre-warping for any filter type. Pre-warping's
+        // tan() diverges near Nyquist, warping/distorting high-freq curves.
         val omega = 2.0 * PI * frequency / sampleRate
         val cosOmega = cos(omega)
         val sinOmega = sin(omega)
@@ -147,10 +143,9 @@ class BiquadFilter(
                 a2 = 1.0 - alpha
             }
 
-            // 1st-order filters — bilinear-transform biquad form (Zölzer DAFX).
-            // 1st-order in biquad form has b2 = a2 = 0; only b0 / b1 / a1 are
-            // set. `processStereoInPlace` and `getFrequencyResponse` handle
-            // the zeroed 2nd-order terms without any extra code.
+            // 1st-order filters — bilinear-transform biquad form (Zölzer DAFX):
+            // b2 = a2 = 0, only b0/b1/a1 set. process/getFrequencyResponse handle
+            // the zeroed 2nd-order terms with no extra code.
             FilterType.LOW_PASS_1 -> {
                 val K = tan(PI * frequency / sampleRate).coerceAtLeast(1e-9)
                 val denom = 1.0 + K

@@ -31,9 +31,8 @@ class ChannelSideEqActivity : AppCompatActivity() {
         }
     }
 
-    /** Copy the currently-stored channel prefs into the running DynamicsProcessing
-     *  instance and re-apply the pre-EQ bands so the new per-channel offsets
-     *  take effect. Safe to call when EQ is off — just becomes a no-op. */
+    /** Copy stored channel prefs into the running DynamicsProcessing and re-apply
+     *  pre-EQ bands so per-channel offsets take effect. No-op when EQ is off. */
     private fun pushChannelToDsp() {
         val dm = eqService?.dynamicsManager ?: return
         if (!dm.isActive) return
@@ -82,10 +81,8 @@ class ChannelSideEqActivity : AppCompatActivity() {
     }
 
     /**
-     * Bind a slider + text input pair so they represent the same dB value.
-     * Slider drags update the input; pressing Done on the input updates the
-     * slider. Double-tapping the slider resets to 0 dB. All changes are
-     * forwarded to [save] so the preference is persisted.
+     * Bind a slider + dB text input so they mirror one value. Drag updates the input;
+     * Done updates the slider; double-tap resets to 0 dB. Changes forwarded to [save].
      */
     private fun wireChannelGainRow(
         sliderId: Int,
@@ -160,9 +157,8 @@ class ChannelSideEqActivity : AppCompatActivity() {
         val follower = findViewById<TextView>(R.id.balancePctFollower)
 
         fun refreshChannelPcts(balancePct: Int) {
-            // Both channels start at 50% when centered. Panning shifts one
-            // channel up and the other down by half the slider value.
-            // Full left (-100) → L 100%, R 0%. Full right (+100) → L 0%, R 100%.
+            // Centered = 50% each; panning shifts one up and the other down by
+            // half the value. Full left (-100)→L100%/R0%; full right (+100)→L0%/R100%.
             val leftPct = (50 - balancePct / 2).coerceIn(0, 100)
             val rightPct = (50 + balancePct / 2).coerceIn(0, 100)
             leftPctText.text = "$leftPct%"
@@ -207,10 +203,8 @@ class ChannelSideEqActivity : AppCompatActivity() {
             follower.post { updateFollower(slider.value.toInt()) }
         }
 
-        // Double-tap anywhere on the slider (thumb or track) to reset to 0%.
-        // We track whether a double-tap just fired, and if so we SWALLOW the
-        // terminating ACTION_UP/CANCEL so the Slider's own tap-to-set code
-        // doesn't overwrite our 0 back to the finger's x-position.
+        // Double-tap anywhere on the slider resets to 0%. Swallow the terminating
+        // ACTION_UP/CANCEL so Slider's tap-to-set doesn't overwrite 0 with the finger x.
         var justDoubleTapped = false
         val detector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
             override fun onDoubleTap(e: MotionEvent): Boolean {
@@ -239,9 +233,8 @@ class ChannelSideEqActivity : AppCompatActivity() {
         }
     }
 
-    /** Per-channel EQ mode toggle. Stored only for now — the actual L/R
-     *  EQ editor UI is a future feature. Reuses the existing
-     *  channelSideEqEnabled pref so nothing changes at the storage layer. */
+    /** Per-channel EQ mode toggle. Stored only — the L/R EQ editor UI is future work.
+     *  Reuses the existing channelSideEqEnabled pref. */
     private fun setupPerChannelEqToggle() {
         val switchView = findViewById<MaterialSwitch>(R.id.perChannelEqSwitch)
         switchView.isChecked = eqPrefs.getChannelSideEqEnabled()

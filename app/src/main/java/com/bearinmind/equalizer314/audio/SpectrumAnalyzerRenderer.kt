@@ -4,16 +4,11 @@ import android.graphics.*
 import kotlin.math.*
 
 /**
- * Professional spectrum analyzer renderer — waveform-based approach.
- *
- * Pipeline per frame:
- * 1. WaveformFftProcessor: waveform bytes → Hann window → zero-pad → FFT → dBFS
- * 2. Convert dB → linear magnitude for proper noise-reducing temporal smoothing
- * 3. Asymmetric EMA in linear domain (fast attack, slow release)
- * 4. Convert back to dB after smoothing
- * 5. Log-frequency mapping: interpolate for sub-bin, peak for multi-bin
- * 6. +3 dB/oct tilt compensation (pivot at 1 kHz)
- * 7. Render with cubic Bézier paths + gradient fill
+ * Waveform-based spectrum analyzer renderer. Pipeline per frame:
+ * waveform bytes → Hann window → zero-pad → FFT → dBFS (WaveformFftProcessor);
+ * dB→linear; asymmetric EMA in linear domain (fast attack, slow release); linear→dB;
+ * log-freq mapping (interpolate sub-bin, peak multi-bin); +3 dB/oct tilt (pivot 1 kHz);
+ * render with cubic Bézier paths + gradient fill.
  */
 class SpectrumAnalyzerRenderer(
     private val sampleRate: Int = 48000
@@ -315,12 +310,8 @@ class SpectrumAnalyzerRenderer(
         inputFillPath.close()
 
         if (outputY != null) {
-            // Dual mode:
-            // 1. "Common" area (overlap of input & output) = 80 alpha (the main spectrum)
-            // 2. Difference areas (boost above input, cut leftover) = 5 alpha
-            //
-            // Build a "common" path using the LOWER of input/output at each point
-            // (lower dB = higher Y pixel). This is the area both spectrums share.
+            // Dual mode: common overlap area = 80 alpha (main spectrum), difference areas
+            // (boost/cut leftover) = 5 alpha. commonY uses LOWER of input/output (lower dB = higher Y).
             val commonY = FloatArray(displayWidth) { x ->
                 maxOf(inputY[x], outputY[x])  // max Y = lower on screen = lower dB
             }

@@ -72,11 +72,8 @@ class AutoEqActivity : AppCompatActivity() {
         activeCard = findViewById(R.id.autoEqActiveCard)
         activeName = findViewById(R.id.autoEqActiveName)
         activeSource = findViewById(R.id.autoEqActiveSource)
-        // Tapping the active (currently-applied) preset card offers to
-        // save that AutoEQ profile into the app's custom presets, so it
-        // becomes bindable to apps / devices and re-selectable from the
-        // main preset list. Same dialog as the main screen's
-        // "Save Custom Preset".
+        // Tapping the active card saves the applied AutoEQ profile into custom presets
+        // (bindable to apps/devices, re-selectable). Same dialog as "Save Custom Preset".
         activeCard.setOnClickListener { promptActivePresetSave() }
         clearButton = findViewById(R.id.autoEqClearButton)
 
@@ -130,9 +127,8 @@ class AutoEqActivity : AppCompatActivity() {
             .filter { name -> q.isEmpty() || name.lowercase().contains(q) }
             .map { AutoEqEntry(it, "Imported", "", "", "") }
 
-        // Pull starred entries to the top, in star-order (newest first).
-        // Resolve each favorite back to its full AutoEqEntry from the
-        // imported list or the db search by name+source.
+        // Pull starred entries to top (newest first); resolve each favorite back to
+        // its full AutoEqEntry from imports or db search by name+source.
         val favs = eqPrefs.getFavoritePresets()
         val favKeys = favs.map { (n, s) -> "$n|$s" }.toHashSet()
         val favEntries = mutableListOf<AutoEqEntry>()
@@ -192,11 +188,9 @@ class AutoEqActivity : AppCompatActivity() {
         updateActiveCard()
     }
 
-    /** Resolve the currently-active AutoEQ profile (the one shown in
-     *  the active card) and open the save-to-presets dialog for it.
-     *  Falls back to reloading from the database / imports when
-     *  [lastAppliedProfile] is null (cold start). No-op with a toast
-     *  if nothing is currently applied. */
+    /** Open save-to-presets dialog for the active AutoEQ profile. Falls back to
+     *  reloading from db/imports when [lastAppliedProfile] is null (cold start);
+     *  no-op with a toast if nothing applied. */
     private fun promptActivePresetSave() {
         val name = eqPrefs.getAutoEqName()
         if (name.isNullOrBlank()) {
@@ -224,13 +218,10 @@ class AutoEqActivity : AppCompatActivity() {
         promptSaveToPresets(name, profile)
     }
 
-    /** Save-to-presets dialog, styled to match MainActivity's
-     *  "Save Custom Preset" popup. Writes the selected AutoEQ profile
-     *  into the shared `custom_presets` SharedPreferences using the
-     *  same JSON shape (preamp + bands + channelSideEqEnabled=false),
-     *  so it shows up everywhere a custom preset would: the main preset
-     *  list, the Audio Output device dropdowns, and the Channel Input
-     *  app dropdowns. */
+    /** Save-to-presets dialog matching MainActivity's "Save Custom Preset". Writes the
+     *  profile into shared `custom_presets` prefs with the same JSON shape
+     *  (preamp + bands + channelSideEqEnabled=false) so it appears in the main preset
+     *  list, Audio Output dropdowns, and Channel Input dropdowns. */
     private fun promptSaveToPresets(defaultBaseName: String, profile: AutoEqProfile) {
         val density = resources.displayMetrics.density
         val customPrefs = getSharedPreferences("custom_presets", MODE_PRIVATE)
@@ -367,9 +358,8 @@ class AutoEqActivity : AppCompatActivity() {
         eqPrefs.saveAutoEqName(entry.name)
         eqPrefs.saveAutoEqSource(entry.source)
         eqPrefs.savePresetName("AutoEQ")
-        // AutoEQ profiles are always flat single-channel — disable Channel
-        // Side EQ if it was on so MainActivity rebinds the graph to bothEq
-        // instead of staying on a stale leftEq/rightEq view.
+        // AutoEQ profiles are single-channel — disable Channel Side EQ so MainActivity
+        // rebinds the graph to bothEq instead of a stale leftEq/rightEq view.
         eqPrefs.saveChannelSideEqEnabled(false)
         eqPrefs.clearLeftRightBands()
 

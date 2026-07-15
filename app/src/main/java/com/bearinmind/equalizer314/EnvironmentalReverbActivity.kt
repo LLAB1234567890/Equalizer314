@@ -16,12 +16,10 @@ import com.bearinmind.equalizer314.ui.ReverbVisualizerView
 import com.google.android.material.slider.Slider
 
 /**
- * Slider-driven editor for the parameters of `android.media.audiofx.EnvironmentalReverb`.
- * Stores values into [EqPreferencesManager] only — the live `AudioEffect`
- * attach/detach to session 0 happens in EqService once we wire up the
- * pipeline. The on/off toggle for this effect lives on the pipeline
- * screen's per-card power button, so this screen is just the parameter
- * editor.
+ * Slider-driven editor for `android.media.audiofx.EnvironmentalReverb` parameters.
+ * Stores values into [EqPreferencesManager] only; the live `AudioEffect`
+ * attach/detach to session 0 happens in EqService. On/off lives on the pipeline
+ * screen's per-card power button.
  */
 class EnvironmentalReverbActivity : AppCompatActivity() {
 
@@ -31,10 +29,8 @@ class EnvironmentalReverbActivity : AppCompatActivity() {
     private lateinit var xyColumns: DiffusionDensityColumnsView
     private var isUpdating = false
 
-    // Debounced "push live values to the reverb engine" trigger.
-    // Slider drags fire dozens of onChange events per second; we
-    // coalesce them down to one service intent per 30 ms so the
-    // foreground service isn't churned by every pixel of drag.
+    // Debounced push to the reverb engine: coalesce the dozens of slider onChange
+    // events/sec down to one service intent per 30 ms.
     private val reverbPushHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private val reverbPushRunnable = Runnable {
         try {
@@ -68,9 +64,7 @@ class EnvironmentalReverbActivity : AppCompatActivity() {
     private lateinit var reflectLevelText: EditText
     private lateinit var roomHFLevelSlider: Slider
     private lateinit var roomHFLevelText: EditText
-    // Master "Room Level" card at the top of the screen — the only
-    // slider that drives roomLevelDb now that the redundant bottom
-    // "Room (dB)" row has been removed.
+    // Master "Room Level" card at top — the only slider that drives roomLevelDb.
     private lateinit var reverbMasterLevelSlider: Slider
     private lateinit var reverbMasterLevelText: EditText
 
@@ -148,11 +142,9 @@ class EnvironmentalReverbActivity : AppCompatActivity() {
             "%.0f", eqPrefs.getReverbRoomHFLevelDb(), eqPrefs::saveReverbRoomHFLevelDb
         ) { visualizer.roomHFLevelDb = it }
 
-        // Seed both XY widgets with persisted values + listen for live
-        // drags from either. Each one updates prefs, the visualizer,
-        // and the *other* XY widget so they stay in lockstep. Diffusion
-        // and Density no longer have dedicated sliders — the X/Y graph
-        // and the column-bar widget are the only inputs for them.
+        // Seed both XY widgets from prefs; a drag on either updates prefs, the
+        // visualizer, and the other widget to stay in lockstep. The X/Y graph and
+        // column-bar widget are the only inputs for Diffusion/Density (no sliders).
         val initialDiff = eqPrefs.getReverbDiffusionPct()
         val initialDens = eqPrefs.getReverbDensityPct()
         xyGraph.diffusionPct = initialDiff; xyGraph.densityPct = initialDens
@@ -182,10 +174,8 @@ class EnvironmentalReverbActivity : AppCompatActivity() {
             schedulePushReverbParams()
         }
 
-        // Click-to-expand "Graph parameters" panel inside the IR card.
-        // TransitionManager animates both the dropdown's height change
-        // and every card below it shifting to make room, so the whole
-        // screen slides as one piece instead of snapping.
+        // Click-to-expand "Graph parameters" panel. TransitionManager animates the
+        // dropdown height and the cards below shifting so the screen slides as one.
         val scrollContent = findViewById<LinearLayout>(R.id.reverbScrollContent)
         val graphParamsHeader = findViewById<LinearLayout>(R.id.graphParamsHeader)
         val graphParamsContent = findViewById<LinearLayout>(R.id.graphParamsContent)

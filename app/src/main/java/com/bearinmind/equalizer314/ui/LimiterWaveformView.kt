@@ -7,8 +7,7 @@ import android.view.View
 
 /**
  * Limiter scrolling level display — same architecture as MBC GrTraceView.
- * No staging queue, no internal timer.
- * Activity's 33ms timer calls pushFrame() + invalidate() each frame.
+ * No staging queue or internal timer; activity's 33ms timer calls pushFrame() + invalidate() each frame.
  */
 class LimiterWaveformView @JvmOverloads constructor(
     context: Context, attrs: AttributeSet? = null
@@ -76,10 +75,8 @@ class LimiterWaveformView @JvmOverloads constructor(
         color = 0xFF666666.toInt(); style = Paint.Style.FILL; alpha = 15
     }
 
-    // Light-theme overrides. The scope keeps its colored accents (red
-    // ceiling / GR trace read on both) but the dark backdrop and the
-    // light-grey traces flip so they're visible on a light card.
-    // setColor resets alpha, so re-apply the alphas after recoloring.
+    // Light-theme overrides: keep colored accents (red ceiling/GR read on both), flip dark backdrop and light-grey traces for a light card.
+    // setColor resets alpha, so re-apply alphas after recoloring.
     init {
         val isLight = (resources.configuration.uiMode and
             android.content.res.Configuration.UI_MODE_NIGHT_MASK) !=

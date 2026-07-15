@@ -15,16 +15,12 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * Owns the per-session [DynamicsProcessing] instances created when an
- * audio-app broadcasts `OPEN_AUDIO_EFFECT_CONTROL_SESSION` (Spotify,
- * Poweramp, AIMP, etc.). On `OPEN` we look up the package's bound
- * preset and attach a DP with that preset's curve to the broadcast's
- * session ID, at `Integer.MAX_VALUE` priority (matches Wavelet's
- * `a6/n0.java:46` pattern). On `CLOSE` we release the DP.
- *
- * No-binding policy: if the package has no saved preset, we do
- * nothing (option A from the spec) — the session falls through to
- * the global session-0 DP that owns the rest of the audio.
+ * Owns per-session [DynamicsProcessing] instances created when an audio app
+ * broadcasts `OPEN_AUDIO_EFFECT_CONTROL_SESSION` (Spotify, Poweramp, AIMP…).
+ * OPEN → attach a DP with the package's bound preset at `Integer.MAX_VALUE`
+ * priority (Wavelet `a6/n0.java:46` pattern); CLOSE → release.
+ * No-binding policy (option A): do nothing — the session falls through to
+ * the global session-0 DP.
  */
 class SessionEffectManager(private val context: Context) {
 
@@ -37,15 +33,11 @@ class SessionEffectManager(private val context: Context) {
      *    YouTube / Chrome / ExoPlayer apps that never broadcast. */
     enum class AttachSource { BROADCAST, DETECTED }
 
-    /** Snapshot of a currently-known session. Shown live in
-     *  ChannelInputActivity's "Now playing" panel.
-     *
-     *  [isPlaying] reflects whether the package's [MediaController]
-     *  reports `PlaybackState.STATE_PLAYING` right now. A row can be
-     *  "known" (in [sessionInfo]) but not currently playing — e.g.
-     *  Spotify broadcast OPEN, you hit pause; the session stays
-     *  alive but isPlaying flips false. The UI uses this to start /
-     *  stop the speaker-pulse animation per row. */
+    /** Snapshot of a known session; shown live in ChannelInputActivity's
+     *  "Now playing" panel. [isPlaying] = package's [MediaController]
+     *  reports `PlaybackState.STATE_PLAYING` now; a session can be known
+     *  but paused (Spotify OPEN then pause). Drives the per-row
+     *  speaker-pulse animation. */
     data class ActiveSession(
         val sessionId: Int,
         val packageName: String,
@@ -96,27 +88,23 @@ class SessionEffectManager(private val context: Context) {
         }
     }
     private val sessionInfo = mutableMapOf<Int, ActiveSession>()
-    /** (package, sessionId) pairs currently observed via the detection
-     *  path. Used to compute the next [observeDetectedPlayback] diff so
-     *  we only attach/detach for actual transitions, not on every poll. */
+    /** (package, sessionId) pairs observed via detection — diffed in
+     *  [observeDetectedPlayback] so attach/detach fires only on
+     *  transitions, not every poll. */
     private val detectedKeys = mutableSetOf<Pair<String, Int>>()
-    /** Snapshot of packages currently in `PlaybackState.STATE_PLAYING`.
-     *  Pushed in via [observeDetectedPlayback]; consulted whenever we
-     *  build a new [ActiveSession] so the UI's animated speaker pulse
-     *  reflects real-time playback state. */
+    /** Packages currently in `PlaybackState.STATE_PLAYING` (pushed via
+     *  [observeDetectedPlayback]); consulted when building an
+     *  [ActiveSession] so the speaker pulse tracks real-time playback. */
     private var playingPackages: Set<String> = emptySet()
     private val eqPrefs = EqPreferencesManager(context)
 
     @Synchronized
     fun getActiveSessions(): List<ActiveSession> = sessionInfo.values.toList()
 
-    /** Name of the preset currently driving per-app audio, for the
-     *  notification + on-graph status chip's "(app preset)" label.
-     *  Returns the bound preset name of the first session that is
-     *  both playing right now AND has a binding. Returns null when:
-     *   - routing isn't Session-based
-     *   - no session is currently playing with a binding
-     *  Callers fall back to other display modes in those cases. */
+    /** Preset currently driving per-app audio (notification + status chip
+     *  "(app preset)" label): bound preset of the first session that is
+     *  playing AND bound. Null when routing isn't Session-based or nothing
+     *  playing has a binding — callers fall back to other display modes. */
     @Synchronized
     fun getCurrentDrivingPreset(): String? {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return null
@@ -126,17 +114,11 @@ class SessionEffectManager(private val context: Context) {
             ?.presetName
     }
 
-    /** Re-attach every currently-active session belonging to
-     *  [packageName] so the binding edit the user just made in
-     *  ChannelInputActivity takes effect on the live per-session DP.
-     *  Without this the existing session keeps the old preset's bands
-     *  until the audio stream closes and reopens (user has to stop /
-     *  restart the audio app, or toggle DP).
-     *
-     *  Only runs in Session-based routing mode — per-app DPs aren't
-     *  attached in System-wide mode anyway, so there's nothing to
-     *  rebuild there. Reverbs are left alone; they're keyed on session
-     *  id and not tied to the binding's preset. */
+    /** Re-attach every active session of [packageName] so a binding edit in
+     *  ChannelInputActivity hits the live per-session DP — otherwise the old
+     *  preset's bands persist until the stream closes/reopens. Session-based
+     *  mode only (per-app DPs aren't attached otherwise). Reverbs untouched:
+     *  keyed on session id, not tied to the binding's preset. */
     @Synchronized
     fun reapplyBindingFor(packageName: String) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return
@@ -146,10 +128,9 @@ class SessionEffectManager(private val context: Context) {
             .filter { it.packageName == packageName }
             .toList()
         for (entry in affected) {
-            // Drop the existing per-session DP so attach() builds a
-            // fresh one with the new binding's bands + preamp. If the
-            // new binding is `(none)` / null, attach() short-circuits
-            // after releasing — the session plays unmodified.
+            // Drop the existing DP so attach() builds a fresh one with the
+            // new binding's bands + preamp; if the new binding is null,
+            // attach() short-circuits after releasing (plays unmodified).
             sessions.remove(entry.sessionId)?.let {
                 try { it.release() } catch (_: Throwable) {}
             }
@@ -174,26 +155,22 @@ class SessionEffectManager(private val context: Context) {
         source: AttachSource = AttachSource.BROADCAST,
     ) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return
-        // BROADCAST source requires a real session id — a broadcaster
-        // that hands us a non-positive id is misbehaving. DETECTED is
-        // allowed to use negative synthetic ids (package-hash based)
-        // when the OEM blocks our `dumpsys audio` access; those entries
-        // are tracked for the "Now playing" UI but skip the DP attach
-        // path below since they don't address a real audio stream.
+        // BROADCAST requires a real session id (non-positive = misbehaving
+        // broadcaster). DETECTED may use negative synthetic ids
+        // (package-hash based) when the OEM blocks `dumpsys audio`; those
+        // are tracked for the "Now playing" UI but skip DP attach — no real
+        // audio stream behind them.
         if (source == AttachSource.BROADCAST && sessionId <= 0) return
 
-        // Always remember the package — even if it has no binding,
-        // the Channel Input screen will list it so the user can bind
-        // a preset retroactively.
+        // Remember the package even without a binding so Channel Input
+        // lists it for retroactive binding.
         eqPrefs.rememberSeenApp(packageName)
 
         val binding = eqPrefs.getAppBinding(packageName)
         val existing = sessionInfo[sessionId]
 
-        // BROADCAST is authoritative. If a BROADCAST entry already exists
-        // for this session, a DETECTED dump observation must not
-        // overwrite it (and must not re-attach the DP — that's already
-        // managed by the broadcast lifecycle).
+        // BROADCAST is authoritative: a DETECTED observation must not
+        // overwrite it or re-attach the DP (broadcast lifecycle owns it).
         if (existing != null &&
             existing.source == AttachSource.BROADCAST &&
             source == AttachSource.DETECTED
@@ -202,29 +179,26 @@ class SessionEffectManager(private val context: Context) {
             return
         }
 
-        // Update / insert sessionInfo BEFORE any routing-mode gate so the
-        // "Now playing" UI shows the session even in System-wide mode.
+        // sessionInfo update BEFORE the routing-mode gate so "Now playing"
+        // shows the session even in System-wide mode.
         sessionInfo[sessionId] = ActiveSession(
             sessionId, packageName, binding?.presetName, source,
             isPlaying = playingPackages.contains(packageName),
         )
         notifySessionsChanged()
 
-        // Routing mode gate. Tracking is mode-independent (above); DP /
-        // reverb attachment is Session-based only. 1 = SESSION_BASED.
+        // Tracking is mode-independent (above); DP / reverb attachment is
+        // Session-based only (1 = SESSION_BASED).
         if (eqPrefs.getAudioRoutingMode() != 1) {
             return
         }
 
-        // DETECTED-with-synthetic-id: no real audio stream behind this
-        // entry, so skip DP/reverb attach. The "Now playing" row still
-        // appears so the user sees the app, but the visible meta will
-        // say "Detected (no session)".
+        // Synthetic-id DETECTED entry: no real stream, skip DP/reverb attach;
+        // the "Now playing" row shows "Detected (no session)".
         if (sessionId <= 0) return
 
-        // Reverb is independent of the EQ binding — the user might
-        // want reverb on a session even without a preset bound, or a
-        // preset bound but reverb disabled. Attach if the pipeline's
+        // Reverb is independent of the EQ binding (reverb without preset, or
+        // preset without reverb, are both valid). Attach if the pipeline's
         // ENVIRONMENTAL_REVERB toggle is on.
         if (eqPrefs.isAudioEffectEnabled(EFFECT_REVERB_NAME)) {
             attachReverbLocked(sessionId)
@@ -241,8 +215,8 @@ class SessionEffectManager(private val context: Context) {
             return
         }
 
-        // Replace any existing DP for this session, but preserve the
-        // reverb (different effect, different lifecycle).
+        // Replace any existing DP for this session; preserve the reverb
+        // (different effect, different lifecycle).
         sessions.remove(sessionId)?.let {
             try { it.release() } catch (_: Throwable) {}
         }
@@ -252,28 +226,20 @@ class SessionEffectManager(private val context: Context) {
             sessions[sessionId] = dp
             Log.d(TAG, "Attached DP session=$sessionId pkg=$packageName preset=${binding.presetName} preamp=${"%.1f".format(loaded.preampDb)}dB source=$source")
         } catch (t: Throwable) {
-            // Matches Wavelet's a6/n0.java:47 — catch and silently
-            // null out on construction failure (another EQ app may
-            // already own the session at higher priority, or the
-            // session may have closed before we got here).
+            // Wavelet a6/n0.java:47 — swallow construction failure (another
+            // EQ app may own the session at higher priority, or it closed).
             Log.w(TAG, "Could not attach DP to session $sessionId", t)
         }
     }
 
-    /** Called by [EqService] when [PlaybackListenerService] has run a new
-     *  dump-parse snapshot. We diff against the previous detection set so
-     *  attach/detach only fires for transitions, not on every 100 ms poll.
-     *
-     *  - Pairs in [detected] but not in [detectedKeys] → `attach(.., DETECTED)`.
-     *  - Pairs in [detectedKeys] but not in [detected] → `detach(..)`
-     *    **only if** the entry's current source is DETECTED. BROADCAST
-     *    entries manage their own teardown via CLOSE_AUDIO_EFFECT_CONTROL_SESSION.
-     *
-     *  [playingNow] is the set of packages currently in
-     *  `PlaybackState.STATE_PLAYING`. Every tracked entry's `isPlaying`
-     *  flag is reconciled against this set — used by the row's animated
-     *  speaker pulse to differentiate "outputting right now" from
-     *  "session is known but paused / silent." */
+    /** Called by [EqService] on each [PlaybackListenerService] dump-parse
+     *  snapshot. Diffs against the previous detection set so attach/detach
+     *  fires only on transitions, not every 100 ms poll:
+     *  new pairs → `attach(.., DETECTED)`; vanished pairs → `detach(..)`
+     *  only if still DETECTED-sourced (BROADCAST entries tear down via
+     *  CLOSE_AUDIO_EFFECT_CONTROL_SESSION). [playingNow] = packages in
+     *  `PlaybackState.STATE_PLAYING`; every entry's `isPlaying` is
+     *  reconciled against it for the speaker-pulse UI. */
     @Synchronized
     fun observeDetectedPlayback(
         detected: Map<String, Set<Int>>,
@@ -293,9 +259,8 @@ class SessionEffectManager(private val context: Context) {
             attach(sid, pkg, AttachSource.DETECTED)
         }
         for ((_, sid) in removed) {
-            // Only detach if the session is still tracked as DETECTED.
-            // If a BROADCAST took over since we last saw it, leave it
-            // alone — the broadcast's CLOSE will manage teardown.
+            // Detach only if still DETECTED — if BROADCAST took over,
+            // its CLOSE manages teardown.
             if (sessionInfo[sid]?.source == AttachSource.DETECTED) {
                 detach(sid)
             }
@@ -304,10 +269,8 @@ class SessionEffectManager(private val context: Context) {
         detectedKeys.clear()
         detectedKeys.addAll(newPairs)
 
-        // Reconcile isPlaying for every tracked row (including BROADCAST
-        // entries — Spotify pausing is the same signal regardless of
-        // how we learned about it). Emit notifySessionsChanged once if
-        // any entry's isPlaying changed.
+        // Reconcile isPlaying for every row (BROADCAST included — a pause is
+        // the same signal either way); notify once if anything changed.
         var changed = false
         for ((sid, info) in sessionInfo.toMap()) {
             val nowPlaying = playingPackages.contains(info.packageName)
@@ -319,49 +282,41 @@ class SessionEffectManager(private val context: Context) {
         if (changed) notifySessionsChanged()
     }
 
-    /** Re-evaluates DP / reverb attachment for every tracked session in
-     *  response to a routing-mode change. The mode toggles between
-     *  Session-based (1) and System-wide (0); transitioning either way
-     *  needs effects to spin up or release.
-     *
-     *  Reverb is also handled inside [applyReverbParamsToAll]; we call
-     *  it elsewhere right after this so both effect types stay in sync. */
+    /** Re-evaluate DP / reverb attachment for every tracked session on a
+     *  routing-mode change (Session-based=1 ↔ System-wide=0). Reverb is
+     *  also handled in [applyReverbParamsToAll], called right after this
+     *  elsewhere so both effect types stay in sync. */
     @Synchronized
     fun onRoutingModeChanged() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return
         val isSessionBased = eqPrefs.getAudioRoutingMode() == 1
         if (!isSessionBased) {
-            // Leaving Session-based — release every per-session DP but
-            // keep sessionInfo so the UI continues to show what's
-            // playing (reverbs are managed by applyReverbParamsToAll).
+            // Leaving Session-based: release per-session DPs but keep
+            // sessionInfo for the "what's playing" UI (reverbs handled by
+            // applyReverbParamsToAll).
             for ((_, dp) in sessions) {
                 try { dp.release() } catch (_: Throwable) {}
             }
             sessions.clear()
             return
         }
-        // Entering Session-based — re-attach DPs for every tracked
-        // session. attach() is idempotent: it releases any prior DP
-        // for the same sessionId before creating a new one.
+        // Entering Session-based: re-attach DPs for every tracked session.
+        // attach() is idempotent (releases any prior DP for the sessionId).
         for ((sid, info) in sessionInfo.toMap()) {
             attach(sid, info.packageName, info.source)
         }
     }
 
-    /** Re-applies the currently persisted reverb parameters to every
-     *  attached reverb. Called by the activity each time a slider /
-     *  XY-graph moves. Also handles enable/disable transitions: when
-     *  the pipeline's reverb toggle flips off we detach every reverb;
-     *  when it flips on we attach one for every tracked session. */
+    /** Re-apply persisted reverb params to every attached reverb (called per
+     *  slider / XY-graph move). Also handles toggle transitions: off →
+     *  detach all; on → attach one per tracked session. */
     @Synchronized
     fun applyReverbParamsToAll() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return
-        // Reverb follows the EQ's routing so it always passes through when on:
-        //   • Session-based mode → one reverb per tracked app session
-        //   • Global (System-wide) mode → a single reverb on session 0 (the
-        //     output mix), the same place the global EQ attaches.
-        // The toggle alone gates whether reverb runs; the routing mode only
-        // decides where it attaches.
+        // Reverb follows the EQ's routing: Session-based → one per tracked
+        // app session; System-wide → single reverb on session 0 (output
+        // mix), same place as the global EQ. Toggle gates whether it runs;
+        // routing mode only decides where it attaches.
         val reverbOn = eqPrefs.isAudioEffectEnabled(EFFECT_REVERB_NAME)
         if (!reverbOn) {
             for ((_, r) in reverbs) {
@@ -401,16 +356,14 @@ class SessionEffectManager(private val context: Context) {
             try { it.release() } catch (_: Throwable) {}
         }
         try {
-            // Instantiate the INSERT EnvironmentalReverb implementation, not the
-            // high-level EnvironmentalReverb(priority, session) ctor — that one
-            // resolves to the *auxiliary* reverb, which only processes audio
-            // explicitly routed to it via AudioTrack.attachAuxEffect(). A
-            // system-wide effect can't open that send on other apps' tracks, so
-            // the aux reverb sits in the chain fed silence and does nothing
-            // (confirmed in the AudioFlinger dump: "Auxiliary Environmental
-            // Reverb"). The INSERT variant processes the signal inline, exactly
-            // like DynamicsProcessing — so it actually affects the audio,
-            // including over Bluetooth.
+            // INSERT EnvironmentalReverb impl, NOT the high-level
+            // EnvironmentalReverb(priority, session) ctor — that resolves to
+            // the *auxiliary* reverb, which only processes audio routed via
+            // AudioTrack.attachAuxEffect(); a system-wide effect can't open
+            // that send on other apps' tracks, so aux sits fed silence
+            // (AudioFlinger dump confirmed: "Auxiliary Environmental
+            // Reverb"). INSERT processes inline like DynamicsProcessing —
+            // it actually affects audio, including over Bluetooth.
             val ctor = insertReverbCtor ?: run {
                 Log.w(TAG, "Insert reverb unavailable (reflection blocked) — session=$sessionId")
                 return

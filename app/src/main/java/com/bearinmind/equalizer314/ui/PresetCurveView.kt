@@ -13,16 +13,12 @@ import org.json.JSONObject
 import kotlin.math.pow
 
 /**
- * EQ-curve preview for a saved preset. Renders the same way as the
- * thumbnail in MainActivity's preset picker (`MainActivity.kt:971`):
- * grey curve `#AAAAAA` over a faint `#6A6A6A` grid (one horizontal
- * mid-line + one vertical left-edge line), log frequency axis from
- * 20 Hz to ~22 kHz, ±15 dB vertical range, 0.5 dp stroke.
+ * EQ-curve preview for a saved preset. Renders like MainActivity's preset-picker thumbnail
+ * (`MainActivity.kt:971`): grey curve `#AAAAAA` over faint `#6A6A6A` grid (one horizontal mid-line +
+ * one vertical left-edge line), log freq axis 20Hz–~22kHz, ±15dB vertical, 0.5dp stroke.
  *
- * For Channel-Side-EQ presets the view stacks an L-graph on top and
- * an R-graph below (with "L"/"R" labels and a divider) so two-channel
- * EQs read as two labeled graphs rather than one mashed curve —
- * identical layout to the preset picker.
+ * Channel-Side-EQ presets stack an L-graph above an R-graph (with "L"/"R" labels + divider) so
+ * two-channel EQs read as two labeled graphs; identical layout to the preset picker.
  */
 class PresetCurveView @JvmOverloads constructor(
     context: Context,

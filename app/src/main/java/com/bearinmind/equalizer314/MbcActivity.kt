@@ -57,10 +57,8 @@ class MbcActivity : AppCompatActivity() {
         override fun onServiceConnected(name: android.content.ComponentName?, binder: android.os.IBinder?) {
             eqService = (binder as com.bearinmind.equalizer314.audio.EqService.EqBinder).service
             serviceBound = true
-            // Check DP state BEFORE pushMbcToService (which can start DP)
             val wasActive = eqService?.dynamicsManager?.isActive == true
-            // Don't pushMbcToService on screen entry — causes audio dropout from DP recreation
-            // MBC settings are already applied from when DP was started
+            // No pushMbcToService on screen entry — DP recreation causes audio dropout; MBC already applied at DP start
             com.bearinmind.equalizer314.ui.BottomNavHelper.setPowerFabInstant(this@MbcActivity, wasActive)
         }
         override fun onServiceDisconnected(name: android.content.ComponentName?) {
@@ -597,9 +595,6 @@ class MbcActivity : AppCompatActivity() {
     }
 
     private fun initViews() {
-        // Back button removed — navigable via bottom nav
-        // findViewById<android.widget.ImageButton>(R.id.mbcBackButton).setOnClickListener { finish(); overridePendingTransition(0, 0) }
-
         // masterSwitch must be initialized before bottom nav references it
         masterSwitch = findViewById(R.id.mbcMasterSwitch)
 
@@ -614,10 +609,8 @@ class MbcActivity : AppCompatActivity() {
             if (svc.dynamicsManager.isActive) {
                 svc.dynamicsManager.stop()
             } else {
-                // Promote the service to a started foreground service so it
-                // survives activity unbind/rebind across navigation. Without
-                // this the service is bind-only and gets destroyed when
-                // MbcActivity exits, tearing DP down with it.
+                // Promote to started foreground service — a bind-only service is destroyed
+                // when MbcActivity exits, tearing DP down with it.
                 com.bearinmind.equalizer314.audio.EqService.start(this)
                 val tempEq = com.bearinmind.equalizer314.dsp.ParametricEqualizer()
                 eqPrefs.restoreState(tempEq)
@@ -767,10 +760,8 @@ class MbcActivity : AppCompatActivity() {
                 bands[index + 1].cutoff = freq
                 saveBand(index + 1)
             }
-            // Sync cutoff slider/text if the selected band is affected.
-            // The slider is in 0..1000 log-space units (see freqToSlider),
-            // NOT raw Hz — assigning b.cutoff (which is Hz) directly
-            // crashes Material Slider's validateValues at the next draw.
+            // Sync cutoff slider/text if selected band affected. Slider is 0..1000 log-space
+            // (freqToSlider), NOT Hz — raw Hz crashes Material Slider validateValues on next draw.
             if (index == selectedBand || index + 1 == selectedBand) {
                 val b = bands[selectedBand]
                 cutoffSlider.value = freqToSlider(b.cutoff.coerceIn(20f, 20000f))
@@ -1459,10 +1450,8 @@ class MbcActivity : AppCompatActivity() {
         // Add new band with defaults
         bands.add(MbcBandData(cutoff = DEFAULT_CUTOFFS.getOrElse(bandCount - 1) { 10000f }))
 
-        // Recompute crossovers BEFORE saveBand. saveBand → syncMbcParamsToGraph
-        // iterates over the new bands.size and reads crossoverFreqs[i] /
-        // [i-1]; if crossovers are still at the old size, the loop walks
-        // past the end and crashes with ArrayIndexOutOfBoundsException.
+        // Recompute crossovers BEFORE saveBand: syncMbcParamsToGraph reads crossoverFreqs at
+        // the new bands.size — an old-size array throws ArrayIndexOutOfBoundsException.
         val defaults = DEFAULT_CROSSOVERS_BY_COUNT[bandCount] ?: logSpacedCrossovers(bandCount)
         crossoverFreqs = FloatArray(bandCount - 1) { i ->
             if (i < oldBandCount - 1) crossoverFreqs.getOrElse(i) { defaults[i] }
@@ -1775,11 +1764,8 @@ class MbcActivity : AppCompatActivity() {
         }
     }
 
-    // Ratio mapping: slider tracks the curve's visual position on the graph
-    // At a reference input 10 dB above threshold:
-    //   output = T + 10/R  → ranges from T+10 (R=1) to T (R=∞)
-    // Slider 0 = no compression (R=1), slider 100 = max compression (R=50)
-    // Map slider linearly to the output position, then derive ratio from that
+    // Ratio mapping (sliderToRatio/ratioToSlider): slider maps linearly to the curve's visual
+    // output at input T+10 dB: output = T + 10/R (T+10 at R=1 → T at R=∞); slider 0=R=1, 100=R=50.
     // Log-frequency mapping for cutoff slider (slider 0-1000 → freq 20-20000 Hz)
     private fun sliderToFreq(sliderValue: Float): Float {
         val norm = (sliderValue / 1000f).coerceIn(0f, 1f)
@@ -1797,9 +1783,7 @@ class MbcActivity : AppCompatActivity() {
 
     private fun sliderToRatio(sliderValue: Float): Float {
         val norm = (sliderValue / 100f).coerceIn(0f, 1f)
-        // norm=0 → output=T+10 (R=1), norm=1 → output≈T (R=50)
-        // output = T + 10*(1-norm), so R = 10 / (output - T) = 10 / (10*(1-norm)) = 1/(1-norm)
-        // But cap at 50
+        // output = T + 10*(1-norm) → R = 1/(1-norm); norm=0→R=1, norm=1→R=50 (cap)
         val denom = (1f - norm).coerceAtLeast(1f / 50f)
         return (1f / denom).coerceIn(1f, 50f)
     }

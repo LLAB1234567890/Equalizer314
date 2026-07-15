@@ -10,11 +10,9 @@ import android.view.MotionEvent
 import android.view.View
 
 /**
- * Two-column slider meter for the EnvironmentalReverb's Diffusion +
- * Density. Mirrors [LimiterCeilingView]'s two-column "Ceiling / GR"
- * styling — same dark column backgrounds, light grey fills, grid lines
- * in the centre gap, titles up top, values at the bottom — but with
- * draggable fills tied to 0..100 %.
+ * Two-column slider meter for EnvironmentalReverb Diffusion + Density.
+ * Mirrors [LimiterCeilingView]'s two-column "Ceiling/GR" styling (dark columns, light-grey fills,
+ * centre-gap grid, titles top, values bottom) but with draggable fills tied to 0..100%.
  */
 class DiffusionDensityColumnsView @JvmOverloads constructor(
     context: Context,

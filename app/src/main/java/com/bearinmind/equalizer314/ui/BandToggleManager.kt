@@ -27,11 +27,9 @@ class BandToggleManager(
     // pop up the per-band L / Both / R picker on the band card (issue #53).
     private val onBandReselected: ((anchor: View, bandIdx: Int) -> Unit)? = null
 ) {
-    // 8 buttons per row. The default 16-band cap uses the two fixed rows
-    // (toggleGroup, toggleGroup2). The experimental higher cap (issue #31)
-    // spills into extra rows created on demand inside [extraRows]; that path
-    // skips the row-slide animations (which only model the 2-row layout) and
-    // rebuilds plainly instead.
+    // 8 buttons per row; the default 16-band cap uses the two fixed rows. The
+    // experimental higher cap (issue #31) spills into on-demand [extraRows] and
+    // skips the row-slide animations (they only model the 2-row layout).
     private val ROW_SIZE = 8
     private var isAnimating = false
 
@@ -48,11 +46,9 @@ class BandToggleManager(
         if (expandedMode && displayPos >= ROW_SIZE) displayPos - ROW_SIZE
         else displayPos % ROW_SIZE
 
-    /** Give every button in the horizontal extra row EXACTLY the width of a
-     *  laid-out row-1 button (weights don't work inside a wrap_content
-     *  scrolling row). Buttons are constructed identically to row 1's, so with
-     *  the width cloned too the row renders pixel-identical to the fixed row 2
-     *  — same button size, same row height, same vertical footprint (#31). */
+    /** Clone a laid-out row-1 button's width onto every extra-row button (weights
+     *  don't work inside a wrap_content scrolling row) so the extra row renders
+     *  pixel-identical to the fixed row 2 (#31). */
     private fun syncExtraRowItemWidths() {
         fun apply(refW: Int) {
             for (i in 0 until extraRows.childCount) {
@@ -65,9 +61,8 @@ class BandToggleManager(
                 }
             }
         }
-        // Row 1 is usually already laid out — clone immediately to avoid a
-        // mis-sized first frame, then refine after the next layout pass
-        // (covers cold start where row 1 hasn't been measured yet).
+        // Clone immediately (avoids a mis-sized first frame), then refine after the
+        // next layout pass (covers cold start where row 1 isn't measured yet).
         toggleGroup.getChildAt(0)?.width?.takeIf { it > 0 }?.let(::apply)
         toggleGroup.post {
             toggleGroup.getChildAt(0)?.width?.takeIf { it > 0 }?.let(::apply)
@@ -114,10 +109,8 @@ class BandToggleManager(
         val eq = state.parametricEq
         val bandCount = eq.getBandCount()
 
-        // Graphic-mode band toggles follow the slot label order (1, 2, 3,
-        // …) so the row stays in numeric order regardless of where the
-        // user has dragged each dot on the graph above. Other modes keep
-        // their natural index order.
+        // Graphic mode orders toggles by slot label (1, 2, 3…) regardless of dot
+        // positions on the graph; other modes keep natural index order.
         val orderedIndices = if (state.currentEqUiMode == EqUiMode.GRAPHIC) {
             val slots = state.bandSlots
             (0 until bandCount).sortedBy { slots.getOrNull(it) ?: it }
@@ -131,9 +124,8 @@ class BandToggleManager(
             row.addView(createToggleButton(bandIdx))
         }
         if (bandCount < EqStateManager.MAX_BANDS) {
-            // Inline "+": lands in rows 1-2 normally, or inside the scrollable
-            // extra-rows area once it's past band 16 (issue #31) — so it scrolls
-            // with the bands instead of adding a fixed row.
+            // Inline "+": rows 1-2 normally, or inside the scrollable extra rows past
+            // band 16 (issue #31) so it scrolls with the bands.
             getRowForDisplay(bandCount).addView(createAddButton())
         }
         updateRowVisibility()
@@ -182,9 +174,8 @@ class BandToggleManager(
         val usedSlots = state.bandSlots.toSet()
         val newSlot = (0 until EqStateManager.MAX_BANDS).firstOrNull { it !in usedSlots } ?: return
         val newFreq = state.allDefaultFrequencies[newSlot]
-        // Clamp to the band list bounds — slots and bands are kept per-channel
-        // and in sync, but guard anyway so a stray desync can never throw out
-        // of MutableList.add(index) (issue #50).
+        // Clamp to band-list bounds — slots/bands stay in sync per-channel, but a
+        // stray desync must never throw in MutableList.add(index) (issue #50).
         val insertPos = state.bandSlots.indexOfFirst { it > newSlot }
             .let { if (it < 0) state.bandSlots.size else it }
             .coerceIn(0, eq.getBandCount())
@@ -204,9 +195,8 @@ class BandToggleManager(
         graphView.setBandSlotLabels(state.bandSlots)
         graphView.setBandColors(state.bandColors)
 
-        // Skip the row-slide animation while one is in flight, or whenever the
-        // band cap is raised past the default 16 (issue #31) — the animations
-        // only model the fixed 2-row layout, so >16 bands rebuild plainly.
+        // Skip the row-slide animation mid-flight or when the cap exceeds 16
+        // (issue #31) — the animations only model the fixed 2-row layout.
         if (isAnimating || EqStateManager.MAX_BANDS > 16) {
             setupToggles()
             updateSelection(state.selectedBandIndex)
@@ -544,10 +534,8 @@ class BandToggleManager(
         val eq = state.parametricEq
         if (eq.getBandCount() <= EqStateManager.MIN_BANDS) return
 
-        // Skip animation mid-flight, or whenever the layout exceeds the two
-        // fixed rows — cap raised past 16, or >16 bands still present after the
-        // cap was toggled back off (issue #31). The row-slide animation only
-        // models the default 2-row layout.
+        // Skip animation mid-flight or when the layout exceeds the two fixed rows
+        // (cap > 16, or >16 bands left after the cap was toggled off — issue #31).
         if (isAnimating || EqStateManager.MAX_BANDS > 16 || eq.getBandCount() > ROW_SIZE * 2) {
             performRemoveBand(index)
             return
@@ -868,9 +856,8 @@ class BandToggleManager(
         onBandCountChanged()
     }
 
-    /** Band toggle tapped. Normally selects the band; but tapping the
-     *  already-selected band while Channel Side EQ is on opens the per-band
-     *  L / Both / R picker anchored to the card (issue #53). */
+    /** Selects the band; tapping the already-selected band while Channel Side EQ
+     *  is on opens the per-band L / Both / R picker anchored to the card (issue #53). */
     private fun onToggleClicked(anchor: View, bandIdx: Int) {
         val cseOn = state.activeChannel != EqStateManager.ActiveChannel.BOTH
         if (cseOn && state.selectedBandIndex == bandIdx && onBandReselected != null) {

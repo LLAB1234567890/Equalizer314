@@ -7,12 +7,10 @@ import kotlin.math.tanh
  * Parametric Equalizer - Custom DSP implementation
  * Allows full control over frequency, gain, and filter type for each band
  */
-// sampleRate defaults to 48000 (the Android device-output rate on
-// virtually every modern device). EqStateManager overrides this with
-// the actual rate from AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE for
-// the audio-path instances; non-audio callers (preset import, target
-// curve, auto-EQ) accept the default since their use is for response-
-// curve computation only.
+// sampleRate default 48000 = device-output rate on virtually every modern
+// device. EqStateManager overrides with the actual AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE
+// for audio-path instances; non-audio callers (preset import, target curve,
+// auto-EQ) accept the default (response-curve computation only).
 class ParametricEqualizer(private val sampleRate: Int = 48000) {
 
     /** Which output channel(s) a band applies to (issue #53). BOTH is the
@@ -71,11 +69,10 @@ class ParametricEqualizer(private val sampleRate: Int = 48000) {
         bands.add(band)
 
         val filter = BiquadFilter(frequency, gain, filterType, sampleRate, q).apply {
-            // RBJ bell (not Vicanek). RBJ's +G and -G peaking filters are
-            // exact inverses (numerator↔denominator swap via A and 1/A),
-            // so opposite bells cancel perfectly — in the graph AND the
-            // audio (the DP converter samples this same response). Vicanek
-            // matched only DC/center/Nyquist, leaving ripple between them
+            // RBJ bell (not Vicanek): RBJ's +G/-G peaking filters are exact
+            // inverses (num↔den swap via A and 1/A), so opposite bells cancel
+            // perfectly in graph AND audio (DP converter samples this same
+            // response). Vicanek matched only DC/center/Nyquist, leaving ripple
             // that broke cancellation (issue #41).
             useVicanekMethod = false
         }
@@ -87,11 +84,10 @@ class ParametricEqualizer(private val sampleRate: Int = 48000) {
         bands.add(index, band)
 
         val filter = BiquadFilter(frequency, gain, filterType, sampleRate, q).apply {
-            // RBJ bell (not Vicanek). RBJ's +G and -G peaking filters are
-            // exact inverses (numerator↔denominator swap via A and 1/A),
-            // so opposite bells cancel perfectly — in the graph AND the
-            // audio (the DP converter samples this same response). Vicanek
-            // matched only DC/center/Nyquist, leaving ripple between them
+            // RBJ bell (not Vicanek): RBJ's +G/-G peaking filters are exact
+            // inverses (num↔den swap via A and 1/A), so opposite bells cancel
+            // perfectly in graph AND audio (DP converter samples this same
+            // response). Vicanek matched only DC/center/Nyquist, leaving ripple
             // that broke cancellation (issue #41).
             useVicanekMethod = false
         }

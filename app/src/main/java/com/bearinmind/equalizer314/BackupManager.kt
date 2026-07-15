@@ -5,15 +5,13 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * Whole-app backup / restore. Serializes every SharedPreferences file the
- * app uses — settings, the custom-preset pool, and the device/app bindings
- * — into a single JSON document the user can save and re-import on a fresh
- * install (e.g. when switching the APK source, which wipes app data).
+ * Whole-app backup / restore. Serializes every SharedPreferences file the app uses
+ * (settings, custom-preset pool, device/app bindings) into one JSON document for
+ * save + re-import on a fresh install (e.g. switching APK source wipes app data).
  *
- * Each value carries a one-char type tag so it round-trips back to the
- * exact SharedPreferences type. Adding a new prefs file later means adding
- * it to [PREF_FILES] (old backups simply won't contain it — restore skips
- * missing files).
+ * Each value carries a one-char type tag so it round-trips to the exact
+ * SharedPreferences type. New prefs files must be added to [PREF_FILES] (old backups
+ * lacking them are skipped on restore).
  */
 object BackupManager {
     const val BACKUP_VERSION = 1
@@ -54,9 +52,8 @@ object BackupManager {
         return root.toString(2)
     }
 
-    /** Returns true if the document looked like a valid backup and was
-     *  applied. The caller should reload UI/state afterwards (the simplest
-     *  is to recreate the activity). */
+    /** Returns true if the document was a valid backup and was applied. Caller should
+     *  reload UI/state afterwards (e.g. recreate the activity). */
     fun importAll(context: Context, json: String): Boolean {
         val root = try { JSONObject(json) } catch (_: Exception) { return false }
         // Sanity check — a real backup always carries the settings or the

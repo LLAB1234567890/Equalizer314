@@ -3,11 +3,9 @@ package com.bearinmind.equalizer314
 import android.app.Application
 import androidx.appcompat.app.AppCompatDelegate
 
-/** Applies the saved light/dark theme choice before any activity
- *  inflates, so every screen (including deep-linked ones) comes up in
- *  the right palette on a cold start. Dark is the default — the pref is
- *  read raw here instead of through EqPreferencesManager to keep app
- *  startup free of that class's migration work. */
+/** Applies the saved light/dark theme before any activity inflates, so every screen
+ *  comes up in the right palette on cold start. Dark is default; the pref is read raw
+ *  (not via EqPreferencesManager) to keep startup free of that class's migration work. */
 class EqApp : Application() {
     override fun onCreate() {
         super.onCreate()

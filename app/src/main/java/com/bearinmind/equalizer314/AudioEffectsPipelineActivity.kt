@@ -18,14 +18,10 @@ import com.bearinmind.equalizer314.state.EqPreferencesManager
 import com.google.android.material.card.MaterialCardView
 
 /**
- * Lets the user drag-reorder the audio-effects pipeline. The visual order
- * represents the intended processing order in the chain. Each effect is
- * one entry in [EffectId]; the order persists in EqPreferencesManager so
- * the (eventual) chain executor in EqService can read it back.
- *
- * For now the rows are display-only — tapping the body is a no-op. The
- * drag handle on the left starts a drag on touch. Issue #4 / EnvironmentalReverb
- * wiring lands in a follow-up commit.
+ * Drag-reorder screen for the audio-effects pipeline: visual order = intended processing order.
+ * Each effect is an [EffectId]; the order persists in EqPreferencesManager for the chain executor
+ * in EqService to read back. Left drag handle starts a drag; card body opens the effect's detail
+ * screen (Environmental Reverb wiring: issue #4).
  */
 class AudioEffectsPipelineActivity : AppCompatActivity() {
 
@@ -33,10 +29,8 @@ class AudioEffectsPipelineActivity : AppCompatActivity() {
         val title: String,
         val description: String,
         val isFixed: Boolean = false,
-        /** Whether this effect supports the right-side on/off toggle.
-         *  Channel Input / Audio Output are fixed bookends with nothing to
-         *  toggle, and DynamicsProcessing is the main always-on chain
-         *  (controlled by the global Power FAB on the main screen). */
+        /** Supports the right-side on/off toggle. Channel Input / Audio Output are fixed bookends;
+         *  DynamicsProcessing is the always-on main chain (controlled by the global Power FAB). */
         val canToggle: Boolean = true,
     ) {
         AUDIO_INPUT(
@@ -75,20 +69,13 @@ class AudioEffectsPipelineActivity : AppCompatActivity() {
 
         findViewById<ImageButton>(R.id.audioPipelineBackButton).setOnClickListener { finish() }
 
-        // Info button toggles the "how-to" card with the same smooth
-        // height animation the Apps / Devices sections use elsewhere.
-        // The card itself sits between the top bar and the pipeline
-        // list, hidden by default in XML. The icon brightens when the
-        // card is visible and dims again when hidden so the user has
-        // a glance-clear "lit / not lit" cue.
+        // Info button toggles the "how-to" card (same height animation as Apps/Devices sections).
+        // Card sits between top bar and list, hidden by default in XML; icon brightens when visible, dims when hidden.
         val infoCard = findViewById<MaterialCardView>(R.id.audioPipelineInfoCard)
         val infoButton = findViewById<ImageButton>(R.id.audioPipelineInfoButton)
         infoButton.setOnClickListener {
-            // Read the pre-toggle visibility, flip it, then drive both
-            // the card animation and the icon tint off the predicted
-            // next state. (toggleInfoCard changes visibility itself —
-            // synchronously on expand, on animation-end on collapse —
-            // so reading the live value after the call is racy.)
+            // Drive animation + tint off the predicted next state: toggleInfoCard changes visibility
+            // itself (synchronously on expand, on animation-end on collapse), so reading the live value after the call is racy.
             val willBeVisible = infoCard.visibility != View.VISIBLE
             toggleInfoCard(infoCard)
             updateInfoButtonTint(infoButton, lit = willBeVisible)
@@ -112,8 +99,7 @@ class AudioEffectsPipelineActivity : AppCompatActivity() {
                 enabledMap[effect] = newState
                 eqPrefs.setAudioEffectEnabled(effect.name, newState)
                 if (effect == EffectId.ENVIRONMENTAL_REVERB) {
-                    // Let the service attach (or release) per-session
-                    // reverbs to match the new toggle state.
+                    // Let the service attach/release per-session reverbs to match the new toggle state
                     val intent = android.content.Intent(this, com.bearinmind.equalizer314.audio.EqService::class.java)
                         .setAction(com.bearinmind.equalizer314.audio.EqService.ACTION_APPLY_REVERB)
                     try {
@@ -249,10 +235,8 @@ class AudioEffectsPipelineActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        // Re-bind the Audio Output + Channel Input cards so their
-        // descriptions pick up state that may have changed while this
-        // screen wasn't visible — current routed device for Audio
-        // Output, current routing mode for Channel Input.
+        // Re-bind the Audio Output + Channel Input cards so descriptions pick up changes made while
+        // away (current routed device / current routing mode).
         if (::adapter.isInitialized) {
             val outPos = items.indexOf(EffectId.AUDIO_OUTPUT)
             if (outPos >= 0) adapter.notifyItemChanged(outPos)
@@ -261,11 +245,8 @@ class AudioEffectsPipelineActivity : AppCompatActivity() {
         }
     }
 
-    /** Tints the info button bright when the card is shown (lit
-     *  state, `colorOnSurface`) and dim when it's hidden
-     *  (`colorOnSurfaceVariant`). The dim color is the same one the
-     *  rest of the app uses for secondary glyphs, so the icon reads
-     *  as "off" at a glance. */
+    /** Info button tint: bright when the card is shown (`colorOnSurface`), dim when hidden
+     *  (`colorOnSurfaceVariant` — the app's secondary-glyph color, reads as "off" at a glance). */
     private fun updateInfoButtonTint(button: ImageButton, lit: Boolean) {
         val attr = if (lit)
             com.google.android.material.R.attr.colorOnSurface
@@ -275,11 +256,8 @@ class AudioEffectsPipelineActivity : AppCompatActivity() {
         button.imageTintList = android.content.res.ColorStateList.valueOf(tint)
     }
 
-    /** Smooth height-based show/hide for the info card. Same animation
-     *  feel as the Apps / Devices collapsible sections elsewhere in
-     *  the app — 500 ms FastOutSlowInInterpolator on the View's
-     *  `layoutParams.height` so the show / hide reads as a deliberate
-     *  slide rather than a pop. */
+    /** Height-based show/hide for the info card — same feel as the Apps/Devices collapsibles:
+     *  500 ms FastOutSlowInInterpolator on `layoutParams.height` (deliberate slide, not a pop). */
     private fun toggleInfoCard(card: View) {
         val expand = card.visibility != View.VISIBLE
         val interp = androidx.interpolator.view.animation.FastOutSlowInInterpolator()
@@ -327,35 +305,23 @@ class AudioEffectsPipelineActivity : AppCompatActivity() {
         }
     }
 
-    /** Reads the persisted audio-routing-mode pref and returns the
-     *  user-facing label for the Channel Input pipeline card. Mode
-     *  0 = System-wide, 1 = Session-based. Stays in sync with the
-     *  chips inside ChannelInputActivity. */
+    /** User-facing label for the Channel Input card from the routing-mode pref (0 = System-wide,
+     *  1 = Session-based); stays in sync with ChannelInputActivity's chips. */
     private fun currentChannelInputDescription(): String =
         when (eqPrefs.getAudioRoutingMode()) {
             1 -> "Session-based"
             else -> "System-wide"
         }
 
-    /** Computes which scope is currently driving the audio for the
-     *  pipeline-screen priority pill. The hierarchy (highest first):
-     *    1. Session-based routing → Channel Input is in charge
-     *       (per-app DPs handle audio).
-     *    2. System-wide + Device auto-switch ON → Audio Output is in
-     *       charge (overwrites the global preset on route changes).
-     *    3. System-wide + Device auto-switch OFF → Channel Input is
-     *       in charge by default (the global session-0 mix is the
-     *       only scope doing anything; Channel Input represents that
-     *       entry point).
-     *  Returns null for every effect outside the two relevant cards;
-     *  the adapter then hides the pill on that card. */
+    /** Which scope drives the audio, for the priority pill. Hierarchy: 1. Session-based routing →
+     *  Channel Input (per-app DPs handle audio); 2. System-wide + auto-switch ON → Audio Output
+     *  (overwrites the global preset on route changes); 3. System-wide + auto-switch OFF →
+     *  Channel Input (global session-0 mix is the only active scope). Null for every other effect → pill hidden. */
     private fun currentPriorityFor(effect: EffectId): CardPriority? {
         val sessionBased = eqPrefs.getAudioRoutingMode() == 1
         val autoSwitch = eqPrefs.getDeviceAutoSwitchEnabled()
-        // Audio Output wins only in the narrow System-wide + auto-
-        // switch ON window. Every other state hands Priority to
-        // Channel Input — including plain System-wide manual mode,
-        // since the global session-0 preset is the audio scope.
+        // Audio Output wins only in the narrow System-wide + auto-switch-ON window; every other
+        // state hands Priority to Channel Input (global session-0 preset is the audio scope).
         val outputWins = !sessionBased && autoSwitch
         return when (effect) {
             EffectId.AUDIO_INPUT ->
@@ -366,13 +332,9 @@ class AudioEffectsPipelineActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * Picks the currently routed output via the same priority rules
-     * the Audio Output screen uses (`DeviceIdentity.priority`) and
-     * returns "<device label> · <display key>". Returns null when no
-     * tracked output is connected — caller falls back to the static
-     * enum description.
-     */
+    /** Currently routed output via the Audio Output screen's priority rules
+     *  (`DeviceIdentity.priority`), as "<device label> · <display key>". Null when no tracked
+     *  output is connected — caller falls back to the static enum description. */
     private fun currentAudioOutputDescription(): String? {
         val am = getSystemService(android.media.AudioManager::class.java) ?: return null
         var best: android.media.AudioDeviceInfo? = null
@@ -395,9 +357,8 @@ class AudioEffectsPipelineActivity : AppCompatActivity() {
 
     // ---- Adapter --------------------------------------------------------
 
-    /** Which card is currently driving the audio. Only Channel Input
-     *  and Audio Output participate; every other effect returns null
-     *  from [PipelineAdapter.priorityFor] and gets no indicator. */
+    /** Which card is driving the audio. Only Channel Input and Audio Output participate; every
+     *  other effect returns null from [PipelineAdapter.priorityFor] (no indicator). */
     private enum class CardPriority { PRIORITY, NOT_PRIORITY }
 
     private class PipelineAdapter(
@@ -406,14 +367,11 @@ class AudioEffectsPipelineActivity : AppCompatActivity() {
         private val onToggle: (EffectId) -> Unit,
         private val onHandleTouch: (RecyclerView.ViewHolder) -> Unit,
         private val onCardClick: (EffectId) -> Unit,
-        /** Override for an effect's description. Audio Output uses this
-         *  to show the current device name + connection type instead of
-         *  the static "Speakers, headphones, or other connected output"
-         *  fallback. Defaults to the enum's `description`. */
+        /** Description override — Audio Output shows current device name + connection type instead
+         *  of the static enum fallback. Defaults to the enum's `description`. */
         private val descriptionFor: (EffectId) -> String = { it.description },
-        /** Priority indicator for the Channel Input / Audio Output
-         *  cards. Returns null for every other effect (no indicator).
-         *  Resolved by the activity from routing-mode + auto-switch. */
+        /** Priority indicator for the Channel Input / Audio Output cards (null elsewhere = no
+         *  indicator); resolved by the activity from routing-mode + auto-switch. */
         private val priorityFor: (EffectId) -> CardPriority? = { null },
     ) : RecyclerView.Adapter<PipelineAdapter.ViewHolder>() {
 
@@ -493,10 +451,8 @@ class AudioEffectsPipelineActivity : AppCompatActivity() {
             textCol.addView(description)
             row.addView(textCol)
 
-            // Pill lives OUTSIDE textCol as a sibling of textCol in the
-            // horizontal row, so it inherits the row's CENTER_VERTICAL
-            // gravity — vertically centered against the combined height
-            // of (title + description), not pinned to the title's line.
+            // Pill sits OUTSIDE textCol as a row sibling, inheriting the row's CENTER_VERTICAL —
+            // centered against the combined title+description height, not pinned to the title line.
             val pill = TextView(ctx).apply {
                 setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_LabelSmall)
                 val padH = (12 * density).toInt()
@@ -510,10 +466,8 @@ class AudioEffectsPipelineActivity : AppCompatActivity() {
                 LinearLayout.LayoutParams.WRAP_CONTENT,
             ).apply { marginStart = (8 * density).toInt() })
 
-            // Right-side power button — styled like the main Power FAB
-            // (12dp rounded square with stroke). Background drawable is set
-            // in onBindViewHolder/paintPower since fill, stroke, and icon
-            // tint all flip between on/off states.
+            // Right-side power button — styled like the main Power FAB (12dp rounded square with
+            // stroke); background set in paintPower since fill/stroke/icon tint flip with on/off state.
             val power = ImageView(ctx).apply {
                 setImageResource(R.drawable.ic_nav_power)
                 layoutParams = LinearLayout.LayoutParams(

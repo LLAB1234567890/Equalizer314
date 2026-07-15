@@ -12,36 +12,28 @@ class EqPreferencesManager(context: Context) {
     private val prefs = context.getSharedPreferences("eq_settings", Context.MODE_PRIVATE)
     private val bindingsPrefs = context.getSharedPreferences("device_bindings", Context.MODE_PRIVATE)
     private val appBindingsPrefs = context.getSharedPreferences("app_bindings", Context.MODE_PRIVATE)
-    // The single shared custom-preset pool — the same file the advanced
-    // (Parametric/Graphic/Table), AutoEQ, and device-binding code use.
-    // Simple-mode presets live here too so all four modes share one pool.
+    // Single shared custom-preset pool used by advanced (Parametric/Graphic/Table), AutoEQ,
+    // device-binding, and Simple-mode code — all four modes share one pool.
     private val customPresetsPrefs = context.getSharedPreferences("custom_presets", Context.MODE_PRIVATE)
 
     init {
         migrateLegacySimplePresets()
     }
 
-    /** A device → preset binding. `key` is the stable device identity
-     *  (e.g. `"BT:00:1A:7D:DA:71:13"`), `label` is the human-friendly
-     *  name shown in the UI, `presetName` is a key into `custom_presets`
-     *  — or the reserved [DEVICE_PRESET_DISABLED] sentinel meaning
-     *  "detach DP entirely while this device is the active route." */
+    /** Device → preset binding. `key` = stable device identity (e.g. `"BT:00:1A:7D:DA:71:13"`),
+     *  `label` = UI name, `presetName` = key into `custom_presets` or the [DEVICE_PRESET_DISABLED]
+     *  sentinel ("detach DP entirely while this device is the active route"). */
     data class Binding(val key: String, val label: String, val presetName: String)
 
     companion object {
-        /** Reserved [Binding.presetName] value meaning "fully disable
-         *  (detach) DynamicsProcessing while this output device is
-         *  routed." Distinct from no binding (`(none)` — keep the
-         *  current preset) and a flat preset (DP still attached). Used
-         *  to dodge OEM output-effect conflicts (e.g. Pixel Adaptive
-         *  Sound) on a specific device. The reserved double-underscore
-         *  token makes collision with a real user preset name
-         *  effectively impossible. */
+        /** Reserved [Binding.presetName] meaning "fully detach DynamicsProcessing while this device
+         *  is routed" — distinct from no binding (`(none)` keeps current preset) and a flat preset
+         *  (DP still attached). Dodges OEM output-effect conflicts (e.g. Pixel Adaptive Sound);
+         *  double-underscore token can't collide with a real preset name. */
         const val DEVICE_PRESET_DISABLED = "__disable_eq__"
 
-        // Simple-mode band contract. Mirrors SimpleEqController.FREQUENCIES
-        // / .Q — kept local so the state layer doesn't depend on the ui
-        // layer. If those change, change these too.
+        // Simple-mode band contract — mirrors SimpleEqController.FREQUENCIES/.Q (kept local so
+        // state doesn't depend on ui). If those change, change these too.
         private val SIMPLE_FREQS = floatArrayOf(31f, 63f, 125f, 250f, 500f, 1000f, 2000f, 4000f, 8000f, 16000f)
         private const val SIMPLE_Q = 1.414
     }
@@ -99,10 +91,9 @@ class EqPreferencesManager(context: Context) {
         eq.isEnabled = prefs.getBoolean("eqEnabled", true)
     }
 
-    /** Whether the parametric EQ stage is enabled. Same `eqEnabled`
-     *  flag saveState/restoreState use; exposed standalone so the EQ
-     *  on/off toggle can persist it immediately and the bottom-nav
-     *  status label can read it without rebuilding the whole EQ. */
+    /** Parametric-EQ-stage enable flag — same `eqEnabled` key saveState/restoreState use; exposed
+     *  standalone so the EQ toggle persists immediately and the bottom-nav status can read it
+     *  without rebuilding the whole EQ. */
     fun getEqEnabled(): Boolean = prefs.getBoolean("eqEnabled", true)
 
     fun saveEqEnabled(enabled: Boolean) {
@@ -111,9 +102,8 @@ class EqPreferencesManager(context: Context) {
 
     // ---- Per-channel EQ persistence (Channel Side EQ) ------------------
 
-    /** Serialize a ParametricEqualizer's bands to the compact JSON-array
-     *  form the saveState / restoreState path uses. Private helper; the
-     *  public entry points are saveLeftBands / saveRightBands. */
+    /** Serialize bands to the JSON-array form saveState/restoreState use; public entry points
+     *  are saveLeftBands / saveRightBands. */
     private fun serializeBands(eq: ParametricEqualizer, slots: List<Int>? = null): String {
         val bands = JSONArray()
         for (i in 0 until eq.getBandCount()) {
@@ -131,9 +121,7 @@ class EqPreferencesManager(context: Context) {
         return bands.toString()
     }
 
-    /** Load a JSON-string band array into the given EQ. Returns true when
-     *  parsing succeeded (even if the array was empty), false on malformed
-     *  JSON. */
+    /** Load a JSON band array into [eq]. True when parsing succeeded (even if empty), false on malformed JSON. */
     private fun loadBands(
         eq: ParametricEqualizer,
         jsonStr: String,
@@ -156,9 +144,8 @@ class EqPreferencesManager(context: Context) {
                     obj.getDouble("q")
                 )
                 if (obj.has("enabled")) eq.setBandEnabled(i, obj.getBoolean("enabled"))
-                // Pre-#53 saves have no "channel" → fall back to the list's
-                // default (LEFT/RIGHT for CSE channels) so independent curves
-                // aren't accidentally merged as "Both".
+                // Pre-#53 saves have no "channel" → fall back to the list's default (LEFT/RIGHT
+                // for CSE channels) so independent curves aren't merged as "Both".
                 eq.getBand(i)?.channel = if (obj.has("channel")) {
                     try {
                         ParametricEqualizer.Channel.valueOf(obj.getString("channel"))
@@ -182,9 +169,8 @@ class EqPreferencesManager(context: Context) {
         prefs.edit().putString("rightBands", serializeBands(eq, slots)).apply()
     }
 
-    /** Populate [eq] from the `leftBands` pref. Returns true when the pref
-     *  existed and parsed; false otherwise (caller should fall back to
-     *  forking from `bothEq`). */
+    /** Populate [eq] from the `leftBands` pref. True when it existed and parsed; false otherwise
+     *  (caller should fall back to forking from `bothEq`). */
     fun restoreLeftBands(eq: ParametricEqualizer): Boolean {
         val s = prefs.getString("leftBands", null) ?: return false
         return loadBands(eq, s, ParametricEqualizer.Channel.LEFT)
@@ -205,19 +191,16 @@ class EqPreferencesManager(context: Context) {
         return loadBands(eq, s, ParametricEqualizer.Channel.RIGHT)
     }
 
-    /** Wipe the saved `leftBands` / `rightBands` prefs. Called when the
-     *  underlying "both" EQ has been replaced (non-CSE preset load, reset
-     *  to defaults, etc.) so a subsequent CSE-enable re-forks from the new
-     *  state instead of resurrecting stale per-channel divergence. */
+    /** Wipe `leftBands`/`rightBands` prefs — called when the "both" EQ was replaced (non-CSE preset
+     *  load, reset) so a later CSE-enable re-forks fresh instead of resurrecting stale divergence. */
     fun clearLeftRightBands() {
         prefs.edit().remove("leftBands").remove("rightBands").apply()
     }
 
     fun getSavedSlots(): List<Int>? = parseSavedSlots(prefs.getString("bands", null))
 
-    /** Per-channel slot layouts, parsed from the same `slot` field embedded in
-     *  the leftBands / rightBands prefs. Null when absent (legacy data or
-     *  never saved) so callers fall back to a sequential layout. */
+    /** Per-channel slot layouts from the `slot` field in leftBands/rightBands prefs; null when
+     *  absent (legacy/never saved) so callers fall back to a sequential layout. */
     fun getSavedLeftSlots(): List<Int>? = parseSavedSlots(prefs.getString("leftBands", null))
 
     fun getSavedRightSlots(): List<Int>? = parseSavedSlots(prefs.getString("rightBands", null))
@@ -251,9 +234,7 @@ class EqPreferencesManager(context: Context) {
 
     fun getDpBandCount(): Int = prefs.getInt("dpBandCount", 128)
 
-    /** Experimental user-facing EQ band cap (issue #31). 16 by default;
-     *  raisable up to EqStateManager.ABSOLUTE_MAX_BANDS via the Experimental
-     *  screen. */
+    /** Experimental EQ band cap (issue #31): 16 default, raisable to EqStateManager.ABSOLUTE_MAX_BANDS. */
     fun getMaxEqBands(): Int = prefs.getInt("maxEqBands", 16)
     fun saveMaxEqBands(count: Int) { prefs.edit().putInt("maxEqBands", count).apply() }
 
@@ -296,30 +277,23 @@ class EqPreferencesManager(context: Context) {
 
     // Auto-gain
     fun saveAutoGainEnabled(enabled: Boolean) { prefs.edit().putBoolean("autoGainEnabled", enabled).apply() }
-    // Default ON: pulls the EQ's peak response to ≤ 0 dB so positive-gain
-    // bands can't clip (and cause aliasing — issue #57), matching Wavelet /
-    // Poweramp which both ship clip protection enabled. Persists the user's
-    // choice once they toggle it, so turning it off stays off.
+    // Default ON: pulls the EQ's peak response to ≤ 0 dB so positive-gain bands can't clip/alias
+    // (issue #57), matching Wavelet/Poweramp. User's toggle choice persists.
     fun getAutoGainEnabled(): Boolean = prefs.getBoolean("autoGainEnabled", true)
 
-    // Issue #58: when on, the foreground-service notification is removed while
-    // the EQ is powered off, and reappears when it's turned back on. Default
-    // off keeps the always-present notification (with its Turn On affordance).
+    // Issue #58: when on, the foreground-service notification is removed while the EQ is powered
+    // off and reappears on power-on. Default off keeps the always-present notification (Turn On affordance).
     fun setHideNotificationWhenOff(enabled: Boolean) { prefs.edit().putBoolean("hideNotifWhenOff", enabled).apply() }
     fun getHideNotificationWhenOff(): Boolean = prefs.getBoolean("hideNotifWhenOff", false)
 
-    // Issue #26: DP FFT frame duration (ms). Single source of truth for the
-    // engine window: the Experimental frame slider picks one of the engine's
-    // power-of-two rungs (10/20/40/80/160/320 ms requests), and the
-    // "Low latency" (40) / "Maximum bass precision" (160) switches are
-    // shortcuts that write the same pref. Default 80 ms = Wavelet/Poweramp's
-    // frame class, ~12 Hz bass resolution.
+    // Issue #26: DP FFT frame duration (ms) — single source of truth for the engine window. The
+    // Experimental slider picks power-of-two rungs (10/20/40/80/160/320 ms); "Low latency" (40) /
+    // "Maximum bass precision" (160) switches write the same pref. Default 80 ms = Wavelet/Poweramp's frame class, ~12 Hz bass resolution.
     fun saveDpFrameMs(ms: Float) { prefs.edit().putFloat("dpFrameMs", ms).apply() }
     fun getDpFrameMs(): Float = prefs.getFloat("dpFrameMs", 80f)
 
-    // Experimental Pre+Post-EQ interleave (issue #26 follow-up): render the
-    // EQ across both DP EQ stages with offset cutoffs — 256 effective stairs.
-    // Baked in at DP creation; needs an EQ power cycle to take effect.
+    // Experimental Pre+Post-EQ interleave (issue #26 follow-up): render EQ across both DP EQ stages
+    // with offset cutoffs — 256 effective stairs. Baked at DP creation; needs an EQ power cycle.
     fun saveDpInterleave(enabled: Boolean) { prefs.edit().putBoolean("dpInterleave", enabled).apply() }
     fun getDpInterleave(): Boolean = prefs.getBoolean("dpInterleave", false)
 
@@ -405,11 +379,8 @@ class EqPreferencesManager(context: Context) {
             if (parts.size == 2) parts[1] to parts[0] else null
         }
 
-    // Audio Effects Pipeline — ordered list of effect IDs (enum names) that
-    // represents the intended processing order. UI persists drag-reorder
-    // here; the chain executor reads this back to know which effects run
-    // and in what order. Stored as a comma-separated list because the set
-    // is small and stable.
+    // Audio Effects Pipeline — ordered effect IDs (enum names) = intended processing order. UI
+    // persists drag-reorder here; the chain executor reads it back. Comma-separated (set is small and stable).
     fun saveAudioEffectsOrder(order: List<String>) {
         prefs.edit().putString("audioEffectsOrder", order.joinToString(",")).apply()
     }
@@ -427,9 +398,8 @@ class EqPreferencesManager(context: Context) {
     }
 
     // ---- Environmental Reverb -----------------------------------------
-    // User-facing units: dB for *Level fields (API uses mB; convert × 100
-    // when attaching to the AudioEffect), per-mille for diffusion/density,
-    // ratio for decayHfRatio. Defaults match Android's documented values.
+    // User-facing units: dB for *Level fields (API uses mB — convert ×100 when attaching to the
+    // AudioEffect), per-mille for diffusion/density, ratio for decayHfRatio. Defaults match Android's documented values.
     fun saveReverbDecayTimeMs(v: Float) { prefs.edit().putFloat("reverbDecayTimeMs", v).apply() }
     fun getReverbDecayTimeMs(): Float = prefs.getFloat("reverbDecayTimeMs", 1490f)
     fun saveReverbDecayHfRatio(v: Float) { prefs.edit().putFloat("reverbDecayHfRatio", v).apply() }
@@ -594,19 +564,16 @@ class EqPreferencesManager(context: Context) {
     fun saveSimpleEqEnabled(enabled: Boolean) { prefs.edit().putBoolean("simpleEqEnabled", enabled).apply() }
     fun getSimpleEqEnabled(): Boolean = prefs.getBoolean("simpleEqEnabled", false)
 
-    // Light/dark theme. Dark is the default. EqApp reads this key raw at
-    // process start (before any activity inflates) — keep the key name in
-    // sync with EqApp if it ever changes.
+    // Light/dark theme (dark default). EqApp reads this key raw at process start (before any
+    // activity inflates) — keep the key name in sync with EqApp.
     fun saveLightTheme(light: Boolean) { prefs.edit().putBoolean("lightTheme", light).apply() }
     fun getLightTheme(): Boolean = prefs.getBoolean("lightTheme", false)
     fun saveSimpleEqGains(gains: FloatArray) {
         val arr = JSONArray()
         for (g in gains) arr.put(g.toDouble())
-        // .commit() (synchronous) instead of .apply() — Simple gains
-        // are the user's source of truth for their per-band edits and
-        // a write lost to abrupt process death (Bluetooth A2DP teardown,
-        // force-stop) was the visible drift bug. .commit() guarantees
-        // the bytes hit disk before this call returns.
+        // Synchronous .commit(), not .apply(): Simple gains are the user's source of truth, and a
+        // write lost to abrupt process death (BT A2DP teardown, force-stop) was the visible drift
+        // bug — .commit() guarantees the bytes hit disk before returning.
         prefs.edit().putString("simpleEqGains", arr.toString()).commit()
     }
     fun getSimpleEqGains(): FloatArray? {
@@ -638,15 +605,9 @@ class EqPreferencesManager(context: Context) {
     fun getRightChannelGainDb(): Float = prefs.getFloat("rightChannelGainDb", 0f)
 
     // ---- Simple EQ Presets (backed by the shared custom_presets pool) ----
-    //
-    // Simple mode shares ONE custom-preset pool with the advanced
-    // (Parametric/Graphic/Table) modes. The two formats are bridged here:
-    //   • Saving a Simple preset writes a full-JSON preset of 10 BELL
-    //     bands at the fixed Simple frequencies, so it shows up in the
-    //     advanced dropdown and loads natively there.
-    //   • Loading any preset INTO Simple samples that preset's composite
-    //     response at the 10 Simple frequencies, so even an arbitrary
-    //     parametric/AutoEQ preset renders as its best 10-bar match.
+    // Bridges the two formats: saving a Simple preset writes a full-JSON preset of 10 BELL bands
+    // at the fixed Simple frequencies (loads natively in the advanced dropdown); loading any preset
+    // INTO Simple samples its composite response at the 10 Simple frequencies (best 10-bar match).
     fun getSimpleEqPresetNames(): List<String> {
         return (customPresetsPrefs.getStringSet("preset_names", emptySet()) ?: emptySet()).sorted()
     }
@@ -675,20 +636,17 @@ class EqPreferencesManager(context: Context) {
             .apply()
     }
 
-    /** Resolves any shared-pool preset down to 10 Simple-mode bar gains by
-     *  sampling its composite frequency response at the Simple
-     *  frequencies. Returns null if the preset is missing/unparseable. */
+    /** Resolve any shared-pool preset to 10 Simple-mode bar gains by sampling its composite
+     *  response at the Simple frequencies. Null if missing/unparseable. */
     fun getSimpleEqPresetGains(name: String): FloatArray? {
         val str = customPresetsPrefs.getString("preset_$name", null) ?: return null
         return try {
             val obj = JSONObject(str)
             val arr = obj.getJSONArray("bands")
 
-            // Fast path: a native 10-band Simple preset (one BELL per
-            // Simple frequency). Read the per-band gains directly so a
-            // save→load round-trip is exact — sampling the composite
-            // would double-count the overlapping skirts of neighbouring
-            // bands and inflate the values.
+            // Fast path — native 10-band Simple preset (one BELL per Simple frequency): read gains
+            // directly so save→load round-trips exactly; sampling the composite would double-count
+            // overlapping skirts of neighbouring bands and inflate values.
             if (arr.length() == SIMPLE_FREQS.size) {
                 var native = true
                 val direct = FloatArray(SIMPLE_FREQS.size)
@@ -702,9 +660,8 @@ class EqPreferencesManager(context: Context) {
                 if (native) return direct
             }
 
-            // General path: sample the preset's composite response at the
-            // Simple frequencies so any arbitrary parametric/AutoEQ preset
-            // renders as its best 10-bar approximation.
+            // General path: sample the composite response at the Simple frequencies so any
+            // arbitrary parametric/AutoEQ preset renders as its best 10-bar approximation.
             val eq = ParametricEqualizer()
             eq.clearBands()
             for (i in 0 until arr.length()) {
@@ -727,16 +684,13 @@ class EqPreferencesManager(context: Context) {
             .apply()
     }
 
-    /** Raw JSON of a shared-pool preset (or null). Lets the Simple-mode
-     *  preset picker render the exact same curve thumbnail / preamp
-     *  subtitle / filter count as the advanced picker. */
+    /** Raw JSON of a shared-pool preset (or null) — lets the Simple-mode picker render the same
+     *  curve thumbnail / preamp subtitle / filter count as the advanced picker. */
     fun getCustomPresetJson(name: String): String? =
         customPresetsPrefs.getString("preset_$name", null)
 
-    /** One-time migration of pre-merge Simple presets (stored under the
-     *  old `simple_preset_*` keys in eq_settings) into the shared
-     *  custom_presets pool, so users don't lose them when the pools
-     *  merge. Runs once; clears the legacy keys afterward. */
+    /** One-time migration of pre-merge Simple presets (old `simple_preset_*` keys in eq_settings)
+     *  into the shared custom_presets pool; clears the legacy keys afterward. */
     private fun migrateLegacySimplePresets() {
         val legacyNames = prefs.getStringSet("simple_preset_names", null) ?: return
         if (legacyNames.isEmpty()) {
@@ -813,10 +767,8 @@ class EqPreferencesManager(context: Context) {
         bindingsPrefs.edit().remove("binding_$key").apply()
     }
 
-    /** Snapshot of the live EQ state taken just before an auto-switch
-     *  applied a device-bound preset, so MainActivity's Undo snackbar
-     *  can restore it. Stored as the same JSON shape custom presets use,
-     *  but in its own key so it can't collide with named presets. */
+    /** Snapshot of the live EQ taken just before an auto-switch applied a device-bound preset, for
+     *  MainActivity's Undo snackbar. Same JSON shape as custom presets, own key (no name collisions). */
     fun saveLastManualState(json: String?) {
         if (json == null) bindingsPrefs.edit().remove("lastManualState").apply()
         else bindingsPrefs.edit().putString("lastManualState", json).apply()
@@ -824,9 +776,7 @@ class EqPreferencesManager(context: Context) {
 
     fun getLastManualState(): String? = bindingsPrefs.getString("lastManualState", null)
 
-    /** True the first time we ever saw `key`. Used by the Audio Output
-     *  screen to populate the "devices seen" list — every new device
-     *  that arrives in the routing callback is recorded here. */
+    /** Record a device from the routing callback for the Audio Output "devices seen" list. */
     fun rememberSeenDevice(key: String, label: String) {
         bindingsPrefs.edit().putString("seen_$key", label).apply()
     }
@@ -846,10 +796,8 @@ class EqPreferencesManager(context: Context) {
         bindingsPrefs.edit().remove("seen_$key").apply()
     }
 
-    /** Persist the user's drag-to-reorder ordering of seen devices.
-     *  Stored as a JSON array of device keys. Devices not in this list
-     *  (e.g. a newly-discovered device) fall back to alphabetical-by-key
-     *  ordering at the end. */
+    /** Persist the drag-to-reorder ordering of seen devices as a JSON array of device keys;
+     *  devices not in the list (newly discovered) fall back to alphabetical-by-key at the end. */
     fun saveDevicesOrder(keys: List<String>) {
         val arr = JSONArray()
         for (k in keys) arr.put(k)
@@ -898,9 +846,7 @@ class EqPreferencesManager(context: Context) {
         appBindingsPrefs.edit().remove("binding_$packageName").apply()
     }
 
-    /** Records that a session-broadcasting app has been seen so the
-     *  Channel Input screen can list it even before the user
-     *  explicitly binds a preset. */
+    /** Record a session-broadcasting app so Channel Input can list it before any preset is bound. */
     fun rememberSeenApp(packageName: String) {
         appBindingsPrefs.edit().putBoolean("seen_$packageName", true).apply()
     }
@@ -931,12 +877,9 @@ class EqPreferencesManager(context: Context) {
     }
 
     /** Filter mode for the Channel Input "Apps" section:
-     *   0 = FILTERED — only apps that declare a MEDIA_BUTTON receiver,
-     *       MediaBrowserService, an audio MIME-type handler, have been
-     *       seen playing, or have an existing binding (default).
-     *   1 = SHOW_ALL — every installed app, alphabetical. Useful for
-     *       binding presets to games and other apps that don't declare
-     *       any of the media contracts but still produce audio.
+     *   0 = FILTERED (default) — only apps with a MEDIA_BUTTON receiver, MediaBrowserService,
+     *       audio MIME handler, seen playing, or an existing binding.
+     *   1 = SHOW_ALL — every installed app, alphabetical (for games etc. that declare no media contracts).
      */
     fun getAppListFilterMode(): Int =
         appBindingsPrefs.getInt("app_list_filter_mode", 0)
@@ -945,13 +888,10 @@ class EqPreferencesManager(context: Context) {
         appBindingsPrefs.edit().putInt("app_list_filter_mode", mode).apply()
     }
 
-    /** Master toggle for the system-sound bypass. When `true` (the
-     *  default), EqService disables the global DP while any
-     *  notification, ringtone, alarm, voice-call, navigation prompt,
-     *  or assistant stream is playing — protects against distortion
-     *  on short transient-heavy audio that the 127-band FFT pre-EQ +
-     *  limiter chain can't handle cleanly. Users who want every
-     *  system sound run through the EQ can flip this off.  */
+    /** System-sound bypass master toggle. `true` (default): EqService disables the global DP while
+     *  any notification/ringtone/alarm/voice-call/navigation/assistant stream plays — protects
+     *  against distortion on short transient-heavy audio the 127-band FFT pre-EQ + limiter chain
+     *  can't handle cleanly. Flip off to run every system sound through the EQ. */
     fun getBypassSystemSounds(): Boolean =
         appBindingsPrefs.getBoolean("bypass_system_sounds", true)
 
@@ -959,13 +899,9 @@ class EqPreferencesManager(context: Context) {
         appBindingsPrefs.edit().putBoolean("bypass_system_sounds", enabled).apply()
     }
 
-    /** Master toggle for device-binding auto-switching on the Audio
-     *  Output screen. When `true` (default), connecting a bound
-     *  output device auto-applies its preset via
-     *  [com.bearinmind.equalizer314.audio.RouteSwitchCoordinator]. When
-     *  `false`, route changes are ignored entirely — the user keeps
-     *  whatever preset is loaded. Bindings still persist, so flipping
-     *  this back on restores prior behaviour. */
+    /** Device-binding auto-switch master toggle. `true` (default): connecting a bound output
+     *  auto-applies its preset via [com.bearinmind.equalizer314.audio.RouteSwitchCoordinator].
+     *  `false`: route changes are ignored (current preset kept); bindings still persist. */
     fun getDeviceAutoSwitchEnabled(): Boolean =
         appBindingsPrefs.getBoolean("device_auto_switch_enabled", true)
 

@@ -17,23 +17,13 @@ import android.service.notification.StatusBarNotification
 import android.util.Log
 
 /**
- * Backbone of the "Now playing" detection path. We never read
- * notifications — Android only exposes [MediaSessionManager.getActiveSessions]
- * to apps with notification-listener access, so declaring this service
- * is the cheapest legal way to obtain that privilege.
- *
- * Once the user grants the listener (Settings → Notification access),
- * we register an [AudioManager.AudioPlaybackCallback] and a
- * [MediaSessionManager.OnActiveSessionsChangedListener]. Either fires
- * whenever any app starts or stops playing audio. We debounce (100 ms)
- * and then run [AudioPolicyDumpParser.dump] on a worker thread to
- * recover the session IDs that public APIs hide. The resulting
- * `Map<packageName, Set<sessionId>>` is shipped to [EqService] via
- * an in-process `startService` intent.
- *
- * Threading: all callbacks and the dump-parse step run on a dedicated
- * [HandlerThread]. The system-binder thread that delivers
- * `onListenerConnected` hops to that thread immediately.
+ * "Now playing" detection path. Never reads notifications — declaring this service is only
+ * to gain notification-listener access, which Android requires for [MediaSessionManager.getActiveSessions].
+ * On listener grant, registers [AudioManager.AudioPlaybackCallback] + [MediaSessionManager.OnActiveSessionsChangedListener];
+ * either fires on any app audio start/stop. Debounces 100 ms then runs [AudioPolicyDumpParser.dump]
+ * on a worker thread to recover session IDs public APIs hide; ships `Map<packageName, Set<sessionId>>`
+ * to [EqService] via `startService`. All callbacks and dump-parse run on a dedicated [HandlerThread]
+ * (the binder thread delivering `onListenerConnected` hops there immediately).
  */
 class PlaybackListenerService : NotificationListenerService() {
 
@@ -53,14 +43,9 @@ class PlaybackListenerService : NotificationListenerService() {
 
     private val snapshotRunnable = Runnable { runSnapshot() }
 
-    /** Periodic re-snapshot for the case where neither
-     *  [AudioPlaybackCallback] nor [MediaSessionManager.OnActiveSessionsChangedListener]
-     *  fires after an app exits cold (force-stop, swipe-from-recents).
-     *  Without this, `detectedKeys` keeps the stale entry and the row
-     *  lingers in the "Now playing" UI until another media app pokes
-     *  the system into firing a callback.
-     *  3 seconds is short enough that stale rows don't feel
-     *  permanent; long enough to be a rounding error against battery. */
+    /** Periodic re-snapshot for cold app exits (force-stop, swipe-from-recents) where neither
+     *  callback fires — otherwise stale `detectedKeys` rows linger in "Now playing" until another
+     *  media app pokes a callback. 3 s: short enough that stale rows clear fast, negligible battery. */
     private val heartbeatRunnable = object : Runnable {
         override fun run() {
             scheduleSnapshot("heartbeat")
@@ -91,12 +76,9 @@ class PlaybackListenerService : NotificationListenerService() {
 
     override fun onListenerDisconnected() {
         Log.d(TAG, "onListenerDisconnected — stopping playback detection")
-        // Wavelet's SessionListenerService.java:71-80 clears its session
-        // map on disconnect, cascading effect release. We mirror that:
-        // tell EqService to drop every per-session effect attached via
-        // the DETECTED path. Broadcast effects survive — they have their
-        // own CLOSE lifecycle. Fired BEFORE we quit the detector thread
-        // so the dispatch can ride the still-live handler.
+        // Tell EqService to drop every per-session effect attached via the DETECTED path.
+        // Broadcast effects survive — they have their own CLOSE lifecycle. Fired BEFORE quitting
+        // the detector thread so the dispatch rides the still-live handler.
         dispatchReleaseDetected()
         val handler = detectorHandler
         val thread = detectorThread
@@ -116,12 +98,9 @@ class PlaybackListenerService : NotificationListenerService() {
         super.onListenerDisconnected()
     }
 
-    /** Packages whose active MediaController reports
-     *  [PlaybackState.STATE_PLAYING] right now. Used by the receiver to
-     *  toggle the per-row speaker-pulse animation. Apps that don't
-     *  register a MediaSession (some games, custom players) will be
-     *  absent here even if they're outputting — acceptable trade-off
-     *  since almost every audio-EQ-relevant app uses MediaSession. */
+    /** Packages whose active MediaController reports [PlaybackState.STATE_PLAYING] now. Drives the
+     *  per-row speaker-pulse animation. Apps without a MediaSession (some games, custom players) are
+     *  absent even if outputting — acceptable since nearly every EQ-relevant app uses MediaSession. */
     private fun collectActivelyPlayingPackages(): Set<String> {
         return try {
             val msm = getSystemService(MediaSessionManager::class.java) ?: return emptySet()
@@ -139,13 +118,9 @@ class PlaybackListenerService : NotificationListenerService() {
         }
     }
 
-    /** Public-API fallback when audioserver's `dumpAsync` is denied.
-     *  Returns the set of packages currently owning an active media
-     *  session — no session IDs (Android marks
-     *  `MediaController.getSessionToken().getBinder()` as the session
-     *  identity but `AudioSessionId` is gated by `@SystemApi`). The
-     *  user can see "YouTube is playing" but cannot per-session EQ it
-     *  on this device. */
+    /** Public-API fallback when audioserver's `dumpAsync` is denied. Returns packages owning an
+     *  active media session — no session IDs (`AudioSessionId` is gated by `@SystemApi`). User sees
+     *  "YouTube is playing" but can't per-session EQ it on this device. */
     private fun collectActiveSessionPackages(): Set<String> {
         return try {
             val msm = getSystemService(MediaSessionManager::class.java) ?: return emptySet()
@@ -162,11 +137,9 @@ class PlaybackListenerService : NotificationListenerService() {
         }
     }
 
-    /** Stable negative session id per package — used to mark "detected
-     *  but no recoverable session id" entries. Negative so it can't
-     *  collide with a real audioserver-assigned session id (always
-     *  positive). Stable so the observe-diff doesn't churn between
-     *  snapshots. */
+    /** Stable negative session id per package, marking "detected but no recoverable session id".
+     *  Negative so it can't collide with real audioserver ids (always positive); stable so the
+     *  observe-diff doesn't churn between snapshots. */
     private fun syntheticSessionId(pkg: String): Int {
         val h = pkg.hashCode()
         return if (h == Int.MIN_VALUE) -1 else -kotlin.math.abs(h)
@@ -192,11 +165,9 @@ class PlaybackListenerService : NotificationListenerService() {
         val msm = getSystemService(MediaSessionManager::class.java)
         if (msm != null) {
             val component = ComponentName(this, PlaybackListenerService::class.java)
-            // getActiveSessions / addOnActiveSessionsChangedListener
-            // both throw SecurityException if the listener isn't bound
-            // yet. We're called from onListenerConnected so binding
-            // is guaranteed, but a slow/buggy OEM still might race —
-            // catch and degrade.
+            // addOnActiveSessionsChangedListener throws SecurityException if the listener isn't
+            // bound yet. Guaranteed bound here (onListenerConnected), but a slow/buggy OEM might
+            // race — catch and degrade.
             try {
                 msm.addOnActiveSessionsChangedListener(sessionsListener, component, handler)
             } catch (t: Throwable) {
@@ -225,16 +196,11 @@ class PlaybackListenerService : NotificationListenerService() {
         // dumpAsync pipe read.
         val dumpResult = AudioPolicyDumpParser.dump(applicationContext)
 
-        // Stock-Android devices grant audioserver's dumpAsync to any
-        // binder caller; Samsung One UI + several other OEM ROMs
-        // explicitly deny it. When that happens, dump returns empty
-        // and we fall back to the public MediaSessionManager API —
-        // it can't give us session IDs (those are @SystemApi from
-        // API 29+), but it at least tells us which packages are
-        // playing so the user sees "YouTube is playing" with a
-        // "Detected (no session)" badge. The fallback assigns a
-        // stable synthetic negative session id per package so the
-        // observe-diff logic still computes correctly.
+        // Stock Android grants audioserver's dumpAsync to any binder caller; Samsung One UI + several
+        // OEM ROMs deny it, so dump returns empty and we fall back to public MediaSessionManager.
+        // That gives no session IDs (@SystemApi from API 29+) but surfaces playing packages
+        // ("Detected (no session)" badge). Fallback assigns a stable synthetic negative session id
+        // per package so observe-diff still computes correctly.
         val merged = mutableMapOf<String, MutableSet<Int>>()
         for ((pkg, sids) in dumpResult) {
             merged.getOrPut(pkg) { mutableSetOf() }.addAll(sids)
@@ -250,18 +216,13 @@ class PlaybackListenerService : NotificationListenerService() {
             }
         }
 
-        // Per-package playback state: packages whose MediaController
-        // reports PlaybackState.STATE_PLAYING right now. The session
-        // manager surfaces this on Samsung even when dumpsys is denied.
-        // The receiver uses this to decide whether each "Now playing"
-        // row animates the speaker pulse — present-but-paused rows go
-        // static.
+        // Packages whose MediaController reports STATE_PLAYING now. Surfaces on Samsung even when
+        // dumpsys is denied. Receiver uses it to decide per-row speaker pulse — paused rows go static.
         val playingNow = collectActivelyPlayingPackages()
 
         Log.d(TAG, "snapshot detected=${merged.size} packages, playing=${playingNow.size}")
 
-        // Pack into a Bundle of int[]s (Map<String, Set<Int>> isn't
-        // parcelable). The receiver decodes by iterating keySet().
+        // Pack into a Bundle of int[]s (Map<String, Set<Int>> isn't parcelable); receiver iterates keySet().
         val bundle = Bundle()
         for ((pkg, sids) in merged) {
             bundle.putIntArray(pkg, sids.toIntArray())
@@ -289,10 +250,8 @@ class PlaybackListenerService : NotificationListenerService() {
 
     // ----- notification surface (intentionally empty) ------------------
 
-    // We declared android.service.notification.disabled_filter_types in
-    // the manifest covering every category; in practice the system will
-    // not deliver any notifications here. These overrides exist to make
-    // the "we don't read notifications" contract explicit in code.
+    // Manifest declares android.service.notification.disabled_filter_types for every category, so
+    // the system delivers no notifications here. These empty overrides make that contract explicit.
 
     @SuppressLint("MissingPermission")
     override fun onNotificationPosted(sbn: StatusBarNotification?) {

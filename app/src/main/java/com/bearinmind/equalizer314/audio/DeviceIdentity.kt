@@ -3,20 +3,14 @@ package com.bearinmind.equalizer314.audio
 import android.media.AudioDeviceInfo
 
 /**
- * Pure helper that maps an [AudioDeviceInfo] to a stable identity key
- * and a human-readable label, centralising every place the rest of the
- * codebase would otherwise have to know about [AudioDeviceInfo.getType]
- * constants.
- *
- * Type buckets follow Wavelet's confirmed `p5/a.java` filters so the
- * binding bucketing matches what users coming from Wavelet expect:
+ * Pure helper mapping an [AudioDeviceInfo] to a stable identity key + human-readable label,
+ * centralising knowledge of [AudioDeviceInfo.getType] constants. Type buckets follow Wavelet's
+ * `p5/a.java` filters so binding bucketing matches user expectations:
  *  - Bluetooth = {A2DP, BLE_HEADSET, BLE_BROADCAST}; SCO/HFP excluded.
  *  - Wired = {WIRED_HEADSET, WIRED_HEADPHONES, LINE_ANALOG} collapsed.
- *  - USB = {USB_HEADSET, USB_DEVICE, USB_ACCESSORY}, keyed by product
- *    name (USB has no stable address through AudioDeviceInfo).
+ *  - USB = {USB_HEADSET, USB_DEVICE, USB_ACCESSORY}, keyed by product name (USB has no stable address).
  *  - Built-in speaker is a singleton.
- *  - Everything else is rejected — `keyOf` returns null and the
- *    routing layer ignores those devices for binding purposes.
+ *  - Everything else rejected — `keyOf` returns null and routing ignores it for binding.
  */
 object DeviceIdentity {
 
@@ -83,10 +77,8 @@ object DeviceIdentity {
         null -> 0
     }
 
-    /** Friendly second-line display for a stored device key. For BT
-     *  the MAC is the meaningful identifier so we show it; for the
-     *  other buckets the product name is already on the first line so
-     *  the second line just states the connection type. */
+    /** Friendly second-line display for a stored device key. BT shows the MAC (the meaningful id);
+     *  other buckets already show product name on the first line, so this states the connection type. */
     fun displayKey(key: String): String = when {
         key.startsWith("BT:") -> key.removePrefix("BT:")
         key.startsWith("BT-NAME:") -> "Bluetooth"

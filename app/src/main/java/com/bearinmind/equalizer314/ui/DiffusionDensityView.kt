@@ -14,10 +14,9 @@ import kotlin.math.max
 import kotlin.math.sqrt
 
 /**
- * X/Y editor for the EnvironmentalReverb's Diffusion (X) and Density (Y).
- * Uses [LimiterCeilingView]-style paints (dark backgrounds, light grey
- * grid + fill, halo on drag) and stretches to fill its card edge-to-edge,
- * with a small inset for axis labels and the bottom value readout.
+ * X/Y editor for EnvironmentalReverb's Diffusion (X) and Density (Y).
+ * [LimiterCeilingView]-style paints; fills its card edge-to-edge with a small
+ * inset for axis labels and the bottom value readout.
  */
 class DiffusionDensityView @JvmOverloads constructor(
     context: Context,
@@ -46,16 +45,13 @@ class DiffusionDensityView @JvmOverloads constructor(
     private val gridPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xFF3A3A3A.toInt(); strokeWidth = 1f
     }
-    // Same paint as the main EQ / MBC graph's grid labels: #888888 grey,
-    // 24-pixel text. Drawn into the gridline gap so the line doesn't cut
-    // through the digit.
+    // Same as the main EQ / MBC grid labels (#888888, 24 px); drawn into the
+    // gridline gap so the line doesn't cut through the digit.
     private val gridLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xFF888888.toInt(); textSize = 24f
     }
 
-    // Rounded "axis pill" labels — same paint trio as the
-    // EqGraphView's "Band N | freq | dB | type" pill so the styling
-    // reads as part of the same app.
+    // Rounded "axis pill" labels — same paint trio as EqGraphView's band pill.
     private val axisPillTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xFFAAAAAA.toInt(); textSize = 20f
     }
@@ -66,9 +62,8 @@ class DiffusionDensityView @JvmOverloads constructor(
         color = 0xFF444444.toInt(); style = Paint.Style.STROKE
         strokeWidth = 2f
     }
-    // Dot styling matched to MBC's gate / compressor curves: dark
-    // graph-color fill so it punches through the gridlines, with a
-    // light-grey ring on top.
+    // Dot matches MBC's gate/compressor curves: dark graph-color fill punches
+    // through gridlines, light-grey ring on top.
     private val dotBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xFF1E1E1E.toInt(); style = Paint.Style.FILL
     }
@@ -95,9 +90,8 @@ class DiffusionDensityView @JvmOverloads constructor(
     private var plotR = 0f; private var plotB = 0f
     private var dragging = false
 
-    // Halo fade animation state — same pattern as the reverb
-    // visualizer's dot ripples. The halo's alpha animates from 0 to its
-    // peak on grab and back to 0 on release rather than snapping on/off.
+    // Halo fade state — same pattern as the reverb visualizer's dot ripples
+    // (alpha 0 → peak on grab, back to 0 on release).
     private var haloStateChangeMs = 0L
     private val haloFadeInMs = 120L
     private val haloFadeOutMs = 220L
@@ -120,10 +114,8 @@ class DiffusionDensityView @JvmOverloads constructor(
         // Plot background fills the whole view, edge-to-edge.
         canvas.drawRect(plotL, plotT, plotR, plotB, plotBgPaint)
 
-        // Gridlines at 20, 40, 60, 80 % on both axes. Labels sit ON the
-        // line (X values near the bottom, Y values near the left) with
-        // the gridline broken around the label so the digits aren't cut
-        // through — same convention used elsewhere in the app.
+        // Gridlines at 20/40/60/80 % on both axes; labels sit ON the line (X near
+        // bottom, Y near left) with the gridline broken around them.
         val gridValues = intArrayOf(20, 40, 60, 80)
         val plotW = plotR - plotL
         val plotH = plotB - plotT
@@ -144,9 +136,8 @@ class DiffusionDensityView @JvmOverloads constructor(
             canvas.drawLine(gx, xLabelBottomY, gx, plotB, gridPaint)
             canvas.drawText(label, gx - labelW / 2f, xLabelBaselineY, gridLabelPaint)
 
-            // Horizontal line at Y=v% — label sits at the left edge,
-            // gridline broken around it. The "Density" pill (drawn
-            // later) sits further right, *after* this number.
+            // Horizontal line at Y=v% — label at the left edge, gridline broken
+            // around it; the "Density" pill sits further right.
             val gy = plotB - (v / 100f) * plotH
             val yLabelLeftX = plotL + 6f * density
             val yLabelRightX = yLabelLeftX + labelW + labelGap
@@ -162,16 +153,11 @@ class DiffusionDensityView @JvmOverloads constructor(
         canvas.drawLine(plotL, py, plotR, py, crosshairPaint)
         canvas.drawLine(px, plotT, px, plotB, crosshairPaint)
 
-        // Dot is clamped inside the graph so it stays fully visible at
-        // 0/100 — same trick the gate / compressor curves use. Filled
-        // with the graph-bg colour and ringed in light grey to match
-        // those views exactly.
+        // Dot clamped inside the graph so it stays visible at 0/100 (same trick
+        // as the gate/compressor curves); bg fill + light-grey ring.
         val dotR = 40f
-        // Small inset (3 dp) so the dot doesn't quite touch the card's
-        // edges — keeps it from being clipped at the rounded corners
-        // while staying visually close to the crosshair endpoints. The
-        // crosshair lines still draw at the un-clamped px/py and so
-        // continue to reach plotL/plotR/plotT/plotB at the extremes.
+        // 3 dp inset keeps the dot from clipping at the rounded corners; the
+        // crosshair still draws at un-clamped px/py so it reaches the edges.
         val dotMargin = dotR + 3f * density
         val dotX = px.coerceIn(plotL + dotMargin, plotR - dotMargin)
         val dotY = py.coerceIn(plotT + dotMargin, plotB - dotMargin)
@@ -196,23 +182,17 @@ class DiffusionDensityView @JvmOverloads constructor(
         drawMiniDots(canvas, dotX, dotY, dotR)
         canvas.drawCircle(dotX, dotY, dotR, dotRingPaint)
 
-        // Axis pill labels. Density's centre sits 40dp from the left
-        // edge; Diffusion's centre sits the same 40dp from the bottom
-        // edge so the visual gap between each pill and its axis-number
-        // row is identical.
+        // Pill centres sit 40 dp from the left (Density) / bottom (Diffusion)
+        // edge so each pill's gap to its axis-number row is identical.
         val pillEdgeOffset = 40f * density
         drawAxisPill(canvas, "Diffusion", (plotL + plotR) / 2f, plotB - pillEdgeOffset, rotated = false)
         drawAxisPill(canvas, "Density", plotL + pillEdgeOffset, (plotT + plotB) / 2f, rotated = true)
     }
 
-    /** Renders the mini-dot pattern inside the X/Y dot.
-     *  - Density drives the count: 4 (min) → 30 (max), with the latest
-     *    dot fading in via alpha as the slider crosses each integer.
-     *  - Diffusion drives the jitter: at 0 % the dots sit on a perfect
-     *    rowed grid; at 100 % they are randomly scattered.
-     *  - Grid extent (gridR) scales smoothly with density so existing
-     *    dots migrate outward as new ones fade in — no snap reshuffles.
-     *  Fixed RNG seed keeps each dot's jitter stable across redraws. */
+    /** Mini-dot pattern inside the X/Y dot. Density → count 4..30 (latest dot
+     *  alpha-fades in per integer); diffusion → jitter (0 % = rowed grid, 100 % =
+     *  scattered). gridR scales smoothly with density so dots migrate, not snap.
+     *  Fixed RNG seed keeps jitter stable across redraws. */
     private fun drawMiniDots(canvas: Canvas, cx: Float, cy: Float, dotR: Float) {
         val miniR = 1.5f * density
         val nDotsFloat = 4f + (densityPct / 100f) * 26f  // continuous 4..30
@@ -220,10 +200,8 @@ class DiffusionDensityView @JvmOverloads constructor(
         if (effectiveR <= 0f) return
         val diffFrac = (diffusionPct / 100f).coerceIn(0f, 1f)
 
-        // Grid extent grows with density. Floor bumped to 0.85 so
-        // even at min density (4 dots in a 2×2) the cluster fills most
-        // of the circle and the rowed pattern is clearly readable at
-        // min diffusion. Top still grows to 0.95 at max density.
+        // Grid extent grows with density: floor 0.85 so even 4 dots (2×2) fill
+        // most of the circle at min diffusion; grows to 0.95 at max density.
         val densityFrac = ((nDotsFloat - 4f) / 26f).coerceIn(0f, 1f)
         val gridR = effectiveR * (0.85f + 0.10f * densityFrac)
         val gridHalfW = gridR * 0.781f   // 6 cols × 5 rows fits with
@@ -262,11 +240,9 @@ class DiffusionDensityView @JvmOverloads constructor(
         miniDotPaint.alpha = baseAlpha
     }
 
-    /** Order in which the 30 grid cells "appear" as density grows.
-     *  Uses Chebyshev distance (max of dx, dy) from the grid's centre
-     *  so cells fill in clean concentric squares — 4 dots = 2×2,
-     *  6 dots = 2×3, 12 dots = 4×3, etc. Tie-break by row then col so
-     *  the cluster grows symmetrically around the centre. */
+    /** Appearance order of the 30 grid cells as density grows: Chebyshev distance
+     *  from centre → concentric squares (4 = 2×2, 6 = 2×3, 12 = 4×3…); tie-break
+     *  row then col so the cluster grows symmetrically. */
     private val miniDotOrder: List<Pair<Int, Int>> = run {
         val maxCols = 6
         val maxRows = 5
@@ -312,11 +288,8 @@ class DiffusionDensityView @JvmOverloads constructor(
         c.clipPath(path)
     }
 
-    // When the user touches near the dot's outline, we capture the
-    // offset between the dot's centre and the touch point so that
-    // throughout the drag the dot's centre stays at (touch + offset)
-    // — i.e. the user's finger sits on the ring rather than on top of
-    // the mini-dots inside.
+    // Capture (centre − touch) offset on grab so the dot's centre stays at
+    // (touch + offset) — the finger rides the ring, not the mini-dots inside.
     private var grabOffsetX = 0f
     private var grabOffsetY = 0f
 

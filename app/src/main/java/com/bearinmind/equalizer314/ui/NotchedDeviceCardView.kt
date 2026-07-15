@@ -9,18 +9,14 @@ import android.util.AttributeSet
 import com.google.android.material.card.MaterialCardView
 
 /**
- * `MaterialCardView` that draws its outline stroke with a notched
- * cutout on the LEFT edge — used so the drag handle, positioned to
- * straddle the card's left edge, appears to sit *on* the outline
- * rather than inside it. Same visual pattern Material uses for the
- * floated label on a `TextInputLayout.OutlinedBox`, but on the
- * vertical edge instead of the horizontal.
+ * `MaterialCardView` that draws its outline stroke with a notched cutout on the LEFT edge, so the
+ * drag handle straddling the card's left edge appears to sit *on* the outline rather than inside it.
+ * Same pattern Material uses for the floated label on `TextInputLayout.OutlinedBox`, but on the
+ * vertical edge instead of horizontal.
  *
- * Implementation: built-in stroke is suppressed (`strokeWidth = 0`)
- * and we re-draw the outline as a Path in `onDraw`, skipping the
- * segment of the left edge between [cutoutTopPx] and [cutoutBottomPx].
- * Call [setLeftEdgeCutout] from the adapter after the handle has
- * been measured so the gap matches the handle's actual position.
+ * Implementation: built-in stroke suppressed (`strokeWidth = 0`), outline re-drawn as a Path in
+ * `onDraw` skipping the left-edge segment between [cutoutTopPx] and [cutoutBottomPx]. Call
+ * [setLeftEdgeCutout] from the adapter after the handle is measured so the gap matches its position.
  */
 class NotchedDeviceCardView @JvmOverloads constructor(
     context: Context,
@@ -41,9 +37,8 @@ class NotchedDeviceCardView @JvmOverloads constructor(
     private val customStrokeColor: Int
 
     init {
-        // Capture the user's app:strokeColor / strokeWidth from XML
-        // before zeroing them out so the built-in MaterialCardView
-        // stroke doesn't double-draw on top of our custom path.
+        // Capture user's app:strokeColor/strokeWidth from XML before zeroing them, so the built-in
+        // MaterialCardView stroke doesn't double-draw over our custom path.
         customStrokeWidthPx = strokeWidth
             .takeIf { it > 0 }?.toFloat()
             ?: resources.displayMetrics.density   // default 1dp
@@ -92,11 +87,8 @@ class NotchedDeviceCardView @JvmOverloads constructor(
             return
         }
 
-        // Clockwise path starting at the cutout's top on the left edge,
-        // going up around the rest of the perimeter, ending at the
-        // cutout's bottom on the left edge. The segment between the
-        // two endpoints on the left edge is left unconnected — the
-        // cutout.
+        // Clockwise path from cutout top on the left edge, around the whole perimeter, ending at
+        // cutout bottom on the left edge. The left-edge segment between the endpoints is left open — the cutout.
         outlinePath.moveTo(left, cutoutTopPx)
         outlinePath.lineTo(left, top + r)
         cornerRect.set(left, top, left + 2 * r, top + 2 * r)

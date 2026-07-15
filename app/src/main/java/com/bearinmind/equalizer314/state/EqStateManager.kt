@@ -20,13 +20,11 @@ class EqStateManager(
     val eqPrefs: EqPreferencesManager
 ) {
     companion object {
-        /** Hard ceiling the band machinery is sized for (default-frequency
-         *  table, slot indices). Stays fixed; the *user-facing* cap below can
-         *  be raised up to this via the Experimental "Max EQ Bands" setting. */
+        /** Fixed hard ceiling the band machinery is sized for (default-frequency table, slot
+         *  indices); the user-facing cap below can be raised up to this. */
         const val ABSOLUTE_MAX_BANDS = 64
-        /** Current user-facing band cap. 16 by default; raised (up to
-         *  [ABSOLUTE_MAX_BANDS]) by the experimental setting (issue #31). A var,
-         *  not const, so it tracks the pref — set in [EqStateManager]'s init and
+        /** User-facing band cap: 16 default, raised up to [ABSOLUTE_MAX_BANDS] by the Experimental
+         *  "Max EQ Bands" setting (issue #31). var so it tracks the pref — set in init,
          *  live-updated by ExperimentalActivity. */
         var MAX_BANDS = 16
         const val MIN_BANDS = 1
@@ -39,16 +37,12 @@ class EqStateManager(
     enum class ActiveChannel { BOTH, LEFT, RIGHT }
 
     init {
-        // Pick up the experimental band cap (issue #31) before any band UI is
-        // built. Bounded to [16, ABSOLUTE_MAX_BANDS]; 16 for everyone who
-        // hasn't opted in.
+        // Experimental band cap (issue #31), bounded [16, ABSOLUTE_MAX_BANDS]; must load before band UI is built
         MAX_BANDS = eqPrefs.getMaxEqBands().coerceIn(16, ABSOLUTE_MAX_BANDS)
     }
 
-    // Query the device's actual audio output sample rate so the biquad
-    // coefficients we compute match the rate DynamicsProcessing actually
-    // runs at. Falling back to 48000 keeps things sensible if the
-    // property is missing or unparsable.
+    // Device output sample rate so biquad coefficients match the rate DynamicsProcessing
+    // actually runs at; 48000 fallback if the property is missing/unparsable.
     private val deviceSampleRate: Int = run {
         val am = context.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
         val raw = am.getProperty(android.media.AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE)
@@ -57,16 +51,13 @@ class EqStateManager(
         parsed ?: 48000
     }
 
-    // The three EQ instances backing per-channel editing. When Channel Side EQ
-    // is off, only bothEq is used (applied to both channels). When Channel
-    // Side EQ is on, leftEq goes to ch0 and rightEq goes to ch1, with
-    // activeChannel deciding which one is the current editing target.
+    // Per-channel editing EQs: CSE off → bothEq on both channels; CSE on → leftEq to ch0,
+    // rightEq to ch1, activeChannel picks the editing target.
     private val bothEq: ParametricEqualizer = ParametricEqualizer(deviceSampleRate)
     private val leftEq: ParametricEqualizer = ParametricEqualizer(deviceSampleRate)
     private val rightEq: ParametricEqualizer = ParametricEqualizer(deviceSampleRate)
-    // The CSE shared "Both" layer: its OWN curve (flat until edited),
-    // applied on top of BOTH channels — final L = leftEq + sharedEq,
-    // final R = rightEq + sharedEq (summed by the DP converter's overlay).
+    // CSE shared "Both" layer: its OWN curve (flat until edited) applied on top of BOTH channels —
+    // final L = leftEq + sharedEq, final R = rightEq + sharedEq (summed by the DP converter overlay).
     private val sharedEq: ParametricEqualizer = ParametricEqualizer(deviceSampleRate)
 
     var parametricEq: ParametricEqualizer = bothEq
@@ -75,12 +66,9 @@ class EqStateManager(
     var activeChannel: ActiveChannel = ActiveChannel.BOTH
         private set
 
-    // Per-channel slot layouts. In Channel-Side-EQ mode left and right are
-    // independent EQs that can hold different band counts, so each side needs
-    // its own slot list — a single shared list let a band add on the shorter
-    // channel compute an insert position past its end and crash (issue #50).
-    // `bandSlots` follows `activeChannel` so all existing call sites keep
-    // working unchanged; switching channels swaps which backing list they see.
+    // Per-channel slot layouts: in CSE mode L/R can hold different band counts, so each side needs
+    // its own list — a single shared list let a band add on the shorter channel compute an insert
+    // position past its end and crash (issue #50). `bandSlots` follows `activeChannel` so call sites work unchanged.
     private val bothBandSlots = mutableListOf<Int>()
     private val leftBandSlots = mutableListOf<Int>()
     private val rightBandSlots = mutableListOf<Int>()
@@ -98,19 +86,16 @@ class EqStateManager(
     var currentEqUiMode = EqUiMode.PARAMETRIC
     var displayToBandIndex = listOf<Int>()
 
-    // Preamp & auto-gain. With Channel Side EQ on, each side has its own
-    // preamp (preampLeftDb / preampRightDb) applied to its DP channel;
-    // preampGainDb is the single shared preamp used when CSE is off.
+    // Preamp & auto-gain: with CSE on, each side's preamp (preampLeftDb/preampRightDb) applies
+    // to its DP channel; preampGainDb is the single shared preamp when CSE is off.
     var preampGainDb: Float = 0f
     var preampLeftDb: Float = 0f
     var preampRightDb: Float = 0f
     var autoGainEnabled: Boolean = false
 
-    /** CSE "Both" edit view: the graph shows the SHARED layer — its own
-     *  curve, flat until edited — which is applied on top of both channels
-     *  (final L = leftEq + shared, final R = rightEq + shared). Entered /
-     *  exited via the Both button next to L / R; per-band tethering via the
-     *  band popup is unaffected. */
+    /** CSE "Both" edit view: graph shows the SHARED layer applied on top of both channels
+     *  (final L/R = channel EQ + shared). Entered/exited via the Both button next to L/R;
+     *  per-band tethering via the band popup is unaffected. */
     var bothViewActive = false
         private set
 
@@ -157,8 +142,7 @@ class EqStateManager(
     }
 
     // Limiter — defaults match Wavelet's a6/z.java:105 baseline
-    // (1 ms attack, 60 ms release, 10:1 ratio, −2 dB threshold, 0 dB
-    // post-gain).
+    // (1 ms attack, 60 ms release, 10:1 ratio, −2 dB threshold, 0 dB post-gain).
     var limiterEnabled: Boolean = true
     var limiterAttackMs: Float = 1f
     var limiterReleaseMs: Float = 60f
@@ -211,11 +195,8 @@ class EqStateManager(
     fun initEq(graphView: EqGraphView) {
         bothEq.isEnabled = true
         eqPrefs.restoreState(bothEq)
-        // If the user left Channel Side EQ on, try to restore `leftEq` and
-        // `rightEq` from their own prefs so a session's L/R divergence
-        // survives a process restart. When those prefs don't exist (first
-        // time CSE has been enabled, or fresh install) fall back to forking
-        // `bothEq` into both. Either way, activate LEFT as the editing target.
+        // With CSE on, restore leftEq/rightEq from their own prefs so L/R divergence survives a
+        // restart; missing prefs (first CSE enable / fresh install) fork bothEq into both. Either way, LEFT becomes the editing target.
         if (eqPrefs.getChannelSideEqEnabled()) {
             val lOk = eqPrefs.restoreLeftBands(leftEq)
             val rOk = eqPrefs.restoreRightBands(rightEq)
@@ -256,17 +237,15 @@ class EqStateManager(
     }
 
     fun initBandSlots() {
-        // Rebuild every channel's slot list, not just the active one — the
-        // non-active channel's list must always match its own band count or a
-        // later channel switch + band add would desync and crash.
+        // Rebuild every channel's slot list — a non-active list not matching its own band count
+        // desyncs and crashes on a later channel switch + band add.
         rebuildSlots(bothBandSlots, bothEq, eqPrefs.getSavedSlots())
         rebuildSlots(leftBandSlots, leftEq, eqPrefs.getSavedLeftSlots())
         rebuildSlots(rightBandSlots, rightEq, eqPrefs.getSavedRightSlots())
     }
 
-    /** Populate [target] so it has exactly one slot per band in [eq]. Uses
-     *  [saved] when it matches the band count, otherwise falls back to a
-     *  sequential 0,1,2,… layout (always valid, never out of range). */
+    /** Populate [target] with exactly one slot per band in [eq]: use [saved] when it matches the
+     *  band count, else a sequential 0,1,2,… layout (always valid, never out of range). */
     private fun rebuildSlots(target: MutableList<Int>, eq: ParametricEqualizer, saved: List<Int>?) {
         target.clear()
         if (saved != null && saved.size == eq.getBandCount()) {
@@ -276,10 +255,8 @@ class EqStateManager(
         }
     }
 
-    /** Trim every channel's EQ down to the current [MAX_BANDS] cap (issue #31).
-     *  Called when the "Add more EQ bands" toggle is turned off — the bands
-     *  added beyond the original 16 are dropped (highest indices first).
-     *  Returns true if anything was removed. */
+    /** Trim every channel's EQ to the [MAX_BANDS] cap (issue #31). Called when "Add more EQ bands"
+     *  is toggled off — bands beyond the original 16 drop highest-first. Returns true if any removed. */
     fun enforceBandCap(): Boolean {
         var changed = false
         for (eq in listOf(bothEq, leftEq, rightEq)) {
@@ -298,18 +275,16 @@ class EqStateManager(
         return changed
     }
 
-    /** TV Mode hook (issues #35/#55): fired on every pushEqUpdate BEFORE the
-     *  isProcessing early-return — a Remote-mode phone must sync changes to
-     *  the TV even when its own DP is off. */
+    /** TV Mode hook (issues #35/#55): fired on every pushEqUpdate BEFORE the isProcessing
+     *  early-return — a Remote-mode phone must sync to the TV even when its own DP is off. */
     var onEqPushed: (() -> Unit)? = null
 
     fun pushEqUpdate() {
-        // Mirror any tethered ("Both"-tagged) band edits between L and R —
-        // runs even when not processing so the in-memory state is correct
-        // for the next save.
+        // Mirror tethered ("Both"-tagged) band edits between L and R — runs even when not
+        // processing so in-memory state is correct for the next save.
         syncBothBands()
-        // The shared "Both" layer rides every conversion as an overlay while
-        // CSE is on (final channel = channel curve + shared curve).
+        // Shared "Both" layer rides every conversion as an overlay while CSE is on
+        // (final channel = channel curve + shared curve).
         ParametricToDpConverter.overlayEq =
             if (eqPrefs.getChannelSideEqEnabled() && sharedEq.getBandCount() > 0) sharedEq else null
         onEqPushed?.invoke()
@@ -318,9 +293,8 @@ class EqStateManager(
         dm.autoGainEnabled = autoGainEnabled
         dm.channelBalancePercent = channelBalancePercent
         if (eqPrefs.getChannelSideEqEnabled()) {
-            // Per-side preamps ride the per-channel input-gain stage on top
-            // of the Channel Side Options offsets; the shared preamp is
-            // zeroed so it can't double-apply.
+            // Per-side preamps ride the per-channel input-gain stage on top of the Channel Side
+            // Options offsets; the shared preamp is zeroed so it can't double-apply.
             dm.preampGainDb = 0f
             dm.leftChannelGainDb = leftChannelGainDb + preampLeftDb
             dm.rightChannelGainDb = rightChannelGainDb + preampRightDb
@@ -340,12 +314,9 @@ class EqStateManager(
         pushEqUpdate()
     }
 
-    /** Coalesce rapid-fire EQ updates (e.g. graph-dot drag) into at most one
-     *  DP write per frame. Each ACTION_MOVE only schedules a flush if one
-     *  isn't already queued; the flush reads the latest in-memory EQ state.
-     *  Without this, a 60+ Hz drag stream blocks the audio thread with one
-     *  full DP-band rewrite per touch event. Call [flushEqUpdate] on the
-     *  drag-end (ACTION_UP) so the final committed state lands immediately. */
+    /** Coalesce rapid-fire EQ updates (e.g. graph-dot drag) into ≤1 DP write per frame; the flush
+     *  reads the latest in-memory state. Without this a 60+ Hz drag stream blocks the audio thread
+     *  with a full DP-band rewrite per touch event. Call [flushEqUpdate] on drag-end (ACTION_UP). */
     fun pushEqUpdateThrottled() {
         if (!isProcessing) return
         if (updatePending) return
@@ -353,9 +324,8 @@ class EqStateManager(
         updateHandler.postDelayed(flushUpdate, 16L)
     }
 
-    /** Cancel any queued throttled update and push the current state now.
-     *  Used at drag-end so the final value is committed without a frame of
-     *  latency. */
+    /** Cancel any queued throttled update and push now — used at drag-end so the final value
+     *  commits without a frame of latency. */
     fun flushEqUpdate() {
         if (updatePending) {
             updateHandler.removeCallbacks(flushUpdate)
@@ -364,20 +334,16 @@ class EqStateManager(
         pushEqUpdate()
     }
 
-    /** Copy one EQ's band state into another. Used when forking the shared
-     *  "both" EQ into the per-channel L/R editors. */
-    /** Tag every band in [eq] with [ch]. Used when forking the shared EQ
-     *  into per-channel copies: forked bands must be born INDEPENDENT
-     *  (L-tagged / R-tagged), not BOTH — copyEqState rebuilds bands whose
-     *  default channel is BOTH, and BOTH-tagged bands are kept in lockstep
-     *  by syncBothBands(), which silently mirrored the Left channel onto
-     *  Right and erased any L/R divergence (reported as "enabling Channel
-     *  Side EQ applies the L side to both"). Tethering a band to Both is
-     *  per-band opt-in via the Both button / band popup (issue #53). */
+    /** Tag every band in [eq] with [ch]. Forked per-channel copies must be born INDEPENDENT
+     *  (L/R-tagged), not BOTH — copyEqState creates BOTH-default bands, and syncBothBands() keeps
+     *  BOTH-tagged bands in lockstep, which mirrored L onto R and erased divergence ("enabling
+     *  Channel Side EQ applies the L side to both"). Both-tethering is per-band opt-in via the
+     *  Both button / band popup (issue #53). */
     private fun tagAllBands(eq: ParametricEqualizer, ch: ParametricEqualizer.Channel) {
         for (i in 0 until eq.getBandCount()) eq.getBand(i)?.channel = ch
     }
 
+    /** Copy one EQ's band state into another — used when forking the shared "both" EQ into the per-channel L/R editors. */
     private fun copyEqState(from: ParametricEqualizer, to: ParametricEqualizer) {
         to.clearBands()
         val count = from.getBandCount()
@@ -389,16 +355,12 @@ class EqStateManager(
         to.isEnabled = from.isEnabled
     }
 
-    /** Called when the Channel Side EQ switch flips. On enable we fork the
-     *  current shared EQ into leftEq / rightEq (so they start identical to
-     *  what the user had) and activate L as the default editing target.
-     *  On disable we flip back to the shared "both" EQ. */
+    /** Channel Side EQ switch: on enable, fork the current shared EQ into leftEq/rightEq
+     *  (identical start) with L as the editing target; on disable, flip back to the "both" EQ. */
     fun setChannelSideEqEnabled(enabled: Boolean) {
         if (enabled) {
-            // Prefer prior L/R divergence when the prefs carry it (e.g. user
-            // flipped CSE off + back on without loading a fresh preset). Fall
-            // back to forking from the current active EQ when either pref is
-            // absent, which is the first-time-enabled / fresh-install path.
+            // Prefer prior L/R divergence when prefs carry it (CSE flipped off + back on); fork
+            // from the current active EQ when either pref is absent (first enable / fresh install).
             val lOk = eqPrefs.restoreLeftBands(leftEq)
             val rOk = eqPrefs.restoreRightBands(rightEq)
             if (!lOk || !rOk) {
@@ -406,26 +368,21 @@ class EqStateManager(
                 if (!lOk && source !== leftEq) copyEqState(source, leftEq)
                 if (!rOk && source !== rightEq) copyEqState(source, rightEq)
             }
-            // Forked/restored-from-legacy channels must be independent, not
-            // tethered — see tagAllBands. Restored post-#53 saves keep their
-            // own accurate tags (a genuine Both tether saves as BOTH on both
-            // sides, which is consistent and safe).
+            // Forked/legacy-restored channels must be independent, not tethered (see tagAllBands).
+            // Post-#53 saves keep their own tags (a genuine tether saves BOTH on both sides — safe).
             if (!lOk) tagAllBands(leftEq, ParametricEqualizer.Channel.LEFT)
             if (!rOk) tagAllBands(rightEq, ParametricEqualizer.Channel.RIGHT)
             activeChannel = ActiveChannel.LEFT
             parametricEq = leftEq
-            // Build each side's slot layout: a channel restored from prefs uses
-            // its own saved slots; a freshly-forked channel inherits the shared
-            // (bothEq) layout so the arrangement carries across the fork.
+            // Slot layouts: a prefs-restored channel uses its own saved slots; a freshly-forked
+            // channel inherits the shared (bothEq) layout so the arrangement carries across.
             rebuildSlots(leftBandSlots, leftEq, if (lOk) eqPrefs.getSavedLeftSlots() else bothBandSlots)
             rebuildSlots(rightBandSlots, rightEq, if (rOk) eqPrefs.getSavedRightSlots() else bothBandSlots)
-            // Heal corrupt tether tags from restored data BEFORE anything can
-            // sync (and before persisting, so the healed tags stick).
+            // Heal corrupt tether tags from restored data BEFORE any sync (and before persisting, so healed tags stick)
             sanitizeTethers()
             if (!eqPrefs.restoreSharedBands(sharedEq)) resetSharedEq()
             else rebuildSlots(sharedBandSlots, sharedEq, eqPrefs.getSavedSharedSlots())
-            // Persist the now-authoritative L/R state (bands + slots) so it
-            // survives restart.
+            // Persist the now-authoritative L/R state (bands + slots) so it survives restart
             eqPrefs.saveLeftBands(leftEq, leftBandSlots)
             eqPrefs.saveRightBands(rightEq, rightBandSlots)
         } else {
@@ -441,8 +398,7 @@ class EqStateManager(
         if (channel == ActiveChannel.BOTH) return   // BOTH is only reachable via CSE off
         exitBothView()
         if (channel == activeChannel) return
-        // Flush "Both" edits from the channel we're leaving to its twins first,
-        // so the switch can't sync the wrong direction (issue #53).
+        // Flush "Both" edits from the departing channel to its twins first, so the switch can't sync the wrong direction (issue #53)
         syncBothBands()
         activeChannel = channel
         parametricEq = if (channel == ActiveChannel.LEFT) leftEq else rightEq
@@ -465,16 +421,14 @@ class EqStateManager(
         }
     }
 
-    /** Shared "Both" layer for graph rendering — non-null with CSE on, so the
-     *  drawn curves show channel + shared (what's audible). The graph skips it
-     *  on the solid curve when that curve IS the shared layer (Both view). */
+    /** Shared "Both" layer for graph rendering — non-null with CSE on, so drawn curves show
+     *  channel + shared (what's audible). Graph skips it when the solid curve IS the shared layer (Both view). */
     fun getGraphOverlayEq(): ParametricEqualizer? =
         if (eqPrefs.getChannelSideEqEnabled() && sharedEq.getBandCount() > 0) sharedEq
         else null
 
-    /** Ghost curves for the current view: in an L/R view the other channel; in
-     *  the Both view both channels, so editing the shared layer shows the
-     *  resulting L and R outputs move live. */
+    /** Ghost curves: in an L/R view the other channel; in the Both view both channels, so
+     *  editing the shared layer shows the resulting L and R outputs move live. */
     fun getGhostEqs(): Pair<ParametricEqualizer?, ParametricEqualizer?> {
         if (!eqPrefs.getChannelSideEqEnabled()) return Pair(null, null)
         if (bothViewActive) return Pair(leftEq, rightEq)
@@ -491,10 +445,9 @@ class EqStateManager(
     fun getBandChannel(index: Int): ParametricEqualizer.Channel =
         parametricEq.getBand(index)?.channel ?: ParametricEqualizer.Channel.BOTH
 
-    /** Set the active band's channel. In CSE mode a BOTH band is mirrored as a
-     *  synced twin in the other channel (same slot); L/R keep it on one channel
-     *  only (moving it across if needed). Returns true if the band left the
-     *  active channel (caller should refresh selection/UI). */
+    /** Set the active band's channel. BOTH mirrors a synced twin into the other channel (same
+     *  slot); L/R keep it on one channel only (moving it across if needed). Returns true if the
+     *  band left the active channel (caller should refresh selection/UI). */
     fun setBandChannel(index: Int, channel: ParametricEqualizer.Channel): Boolean {
         if (!eqPrefs.getChannelSideEqEnabled()) return false
         if (activeChannel == ActiveChannel.BOTH) return false
@@ -572,13 +525,8 @@ class EqStateManager(
         }
     }
 
-    /** Keep every "Both" band in the active channel synced to its twin in the
-     *  other channel (matched by slot), creating the twin if missing. Called
-     *  before each persist/DP push so edits to a Both band mirror over. No-op
-     *  outside CSE. */
-    /** "Untether" a BOTH band: keep it on BOTH channels but make the two sides
-     *  independent — each retains its current position — instead of dropping
-     *  the band from the other channel (issue #53). */
+    /** "Untether" a BOTH band: keep it on BOTH channels but make the two sides independent (each
+     *  retains its position) instead of dropping it from the other channel (issue #53). */
     fun untetherBand(displayIndex: Int) {
         if (!eqPrefs.getChannelSideEqEnabled() || activeChannel == ActiveChannel.BOTH) return
         val band = parametricEq.getBand(displayIndex) ?: return
@@ -587,9 +535,9 @@ class EqStateManager(
         val activeIsLeft = activeChannel == ActiveChannel.LEFT
         val otherEq = if (activeIsLeft) rightEq else leftEq
         val otherSlots = if (activeIsLeft) rightBandSlots else leftBandSlots
-        // Make sure the other channel keeps a copy at the current position.
+        // Ensure the other channel keeps a copy at the current position
         if (otherSlots.indexOf(slot) < 0) mirrorBandTo(otherEq, otherSlots, slot, band)
-        // Retag both sides as single-channel so they're now independent.
+        // Retag both sides as single-channel so they're now independent
         band.channel = if (activeIsLeft) ParametricEqualizer.Channel.LEFT
             else ParametricEqualizer.Channel.RIGHT
         otherSlots.indexOf(slot).takeIf { it >= 0 }?.let { k ->
@@ -600,10 +548,9 @@ class EqStateManager(
         if (isProcessing) pushEqUpdate()
     }
 
-    /** Create the synced twin in the other channel for a freshly-added BOTH
-     *  band (issue #53). Explicit one-time insert (vs. the update-only
-     *  [syncBothBands]) so new bands default to "tethered to both". No-op
-     *  outside CSE or if the band isn't BOTH. */
+    /** Create the synced twin in the other channel for a freshly-added BOTH band (issue #53) —
+     *  explicit one-time insert (vs. the update-only [syncBothBands]) so new bands default to
+     *  "tethered to both". No-op outside CSE or if the band isn't BOTH. */
     fun ensureBothTwin(displayIndex: Int) {
         if (!eqPrefs.getChannelSideEqEnabled() || activeChannel == ActiveChannel.BOTH) return
         val band = parametricEq.getBand(displayIndex) ?: return
@@ -615,14 +562,11 @@ class EqStateManager(
         mirrorBandTo(otherEq, otherSlots, slot, band)
     }
 
-    /** Repair tether tags after loading persisted L/R bands (issue #53).
-     *  A genuine tether keeps its two sides in lockstep, so a BOTH/BOTH
-     *  pair whose parameters DIFFER is corrupt data (saved by earlier
-     *  builds that tagged forked bands BOTH by default). Left alone, the
-     *  next sync would trust the tags and overwrite one channel with the
-     *  other — user-reported as "switching L/R applies L to both". Demote
-     *  any non-identical or one-sided BOTH pair to independent L/R tags.
-     *  Must run AFTER slots are rebuilt (pairs are matched by slot). */
+    /** Repair tether tags after loading persisted L/R bands (issue #53): a BOTH/BOTH pair with
+     *  DIFFERING params is corrupt (earlier builds tagged forked bands BOTH by default) — the next
+     *  sync would overwrite one channel with the other ("switching L/R applies L to both"). Demote
+     *  any non-identical or one-sided BOTH pair to independent L/R tags. Must run AFTER slots are
+     *  rebuilt (pairs are matched by slot). */
     private fun sanitizeTethers() {
         for (i in 0 until leftEq.getBandCount()) {
             val lb = leftEq.getBand(i) ?: continue
@@ -643,8 +587,7 @@ class EqStateManager(
                 }
             }
         }
-        // Sweep the right side for one-sided BOTH tags the loop above
-        // couldn't reach (no matching left slot).
+        // Sweep the right side for one-sided BOTH tags the loop above couldn't reach (no matching left slot)
         for (j in 0 until rightEq.getBandCount()) {
             val rb = rightEq.getBand(j) ?: continue
             if (rb.channel != ParametricEqualizer.Channel.BOTH) continue
@@ -657,10 +600,11 @@ class EqStateManager(
         }
     }
 
+    /** Sync every tethered ("Both") band in the active channel to its slot-matched twin in the
+     *  other channel. Called before each persist/DP push. No-op outside CSE. */
     fun syncBothBands() {
         if (!eqPrefs.getChannelSideEqEnabled() || activeChannel == ActiveChannel.BOTH) return
-        // In the Both view parametricEq is the SHARED layer, not a channel —
-        // tether syncing between L and R doesn't apply there.
+        // In the Both view parametricEq is the SHARED layer, not a channel — L/R tether syncing doesn't apply
         if (bothViewActive) return
         val activeIsLeft = activeChannel == ActiveChannel.LEFT
         val otherEq = if (activeIsLeft) rightEq else leftEq
@@ -670,19 +614,15 @@ class EqStateManager(
             val b = parametricEq.getBand(i) ?: continue
             if (b.channel != ParametricEqualizer.Channel.BOTH) continue
             val slot = activeSlots.getOrNull(i) ?: continue
-            // UPDATE the existing twin only — never insert here. Twin creation
-            // happens explicitly in setBandChannel(BOTH); inserting during this
-            // frequently-called sync caused runaway band duplication when slot
-            // sets differed between channels (issue #53).
+            // UPDATE the existing twin only — never insert. Twin creation is explicit in
+            // setBandChannel(BOTH); inserting in this hot sync caused runaway band duplication
+            // when slot sets differed between channels (issue #53).
             val j = otherSlots.indexOf(slot)
             val other = if (j >= 0) otherEq.getBand(j) else null
-            // A tether is BILATERAL: only sync when the other channel's band
-            // at this slot is also tagged BOTH. Bands created with the default
-            // BOTH tag by paths that don't know about channels (preset loads,
-            // imports) must not silently overwrite the other side — that
-            // erased the R channel whenever the user switched L/R after
-            // loading a preset. Demote such one-sided tags to this channel so
-            // the band stops posing as tethered (self-heals persisted data).
+            // A tether is BILATERAL: sync only when the other channel's band at this slot is also
+            // BOTH. One-sided BOTH tags from channel-unaware paths (preset loads, imports) must not
+            // overwrite the other side — that erased R after an L/R switch post-preset-load.
+            // Demote such tags to this channel (self-heals persisted data).
             if (other == null || other.channel != ParametricEqualizer.Channel.BOTH) {
                 b.channel = if (activeIsLeft) ParametricEqualizer.Channel.LEFT
                     else ParametricEqualizer.Channel.RIGHT
@@ -703,13 +643,9 @@ class EqStateManager(
         val enabled: Boolean = true,
     )
 
-    /** Replace the in-memory EQ state from a parsed preset.
-     *  - `cseEnabled == false`: load [bothBands] into `bothEq`, point
-     *    `parametricEq` at it, activeChannel = BOTH.
-     *  - `cseEnabled == true`: load [leftBands] into `leftEq` and
-     *    [rightBands] into `rightEq`, activeChannel = LEFT, point
-     *    `parametricEq` at `leftEq`. The CSE pref is also persisted so a
-     *    subsequent `getChannelSideEqEnabled()` matches what was loaded. */
+    /** Replace in-memory EQ state from a parsed preset. cseEnabled=false: [bothBands]→bothEq,
+     *  activeChannel=BOTH. cseEnabled=true: [leftBands]→leftEq, [rightBands]→rightEq,
+     *  activeChannel=LEFT. The CSE pref is persisted so getChannelSideEqEnabled() matches. */
     fun applyPresetEqs(
         cseEnabled: Boolean,
         bothBands: List<BandSpec>,
@@ -720,26 +656,22 @@ class EqStateManager(
         if (cseEnabled) {
             loadBandsInto(leftEq, leftBands)
             loadBandsInto(rightEq, rightBands)
-            // Presets don't store channel tags, so loadBandsInto leaves the
-            // default BOTH tag on every band of BOTH channels — which the
-            // tether sync then treats as a bilateral tether and mirrors L
-            // over R on the first channel switch (issue #53 regression:
-            // "loading a preset then pressing L/R applies L to both").
-            // Preset-loaded channels are independent by definition.
+            // Presets don't store channel tags — loadBandsInto leaves default BOTH tags on both
+            // channels, which the tether sync treats as bilateral and mirrors L over R on the first
+            // channel switch (issue #53 regression). Preset-loaded channels are independent by definition.
             tagAllBands(leftEq, ParametricEqualizer.Channel.LEFT)
             tagAllBands(rightEq, ParametricEqualizer.Channel.RIGHT)
             activeChannel = ActiveChannel.LEFT
             parametricEq = leftEq
-            // Persist the freshly-loaded L / R bands under their own prefs
-            // keys so a subsequent process restart keeps the divergence.
+            // Persist the freshly-loaded L/R bands under their own prefs keys so a process restart keeps the divergence
             eqPrefs.saveLeftBands(leftEq)
             eqPrefs.saveRightBands(rightEq)
         } else {
             loadBandsInto(bothEq, bothBands)
             activeChannel = ActiveChannel.BOTH
             parametricEq = bothEq
-            // Wipe any stale per-channel prefs so re-enabling CSE forks from
-            // the newly-loaded bothEq instead of resurrecting old divergence.
+            // Wipe stale per-channel prefs so re-enabling CSE forks from the newly-loaded bothEq
+            // instead of resurrecting old divergence
             eqPrefs.clearLeftRightBands()
         }
         exitBothView()
@@ -839,10 +771,8 @@ class EqStateManager(
         dm.limiterRatio = limiterRatio
         dm.limiterThresholdDb = limiterThresholdDb
         dm.limiterPostGainDb = limiterPostGainDb
-        // MBC topology has to be set BEFORE DP is constructed so the
-        // right number of MBC bands gets allocated. The per-band
-        // params (threshold, ratio, attack…) are pushed AFTER start
-        // via applyPersistedMbcConfig — see the comment there.
+        // MBC topology must be set BEFORE DP construction so the right number of MBC bands is
+        // allocated; per-band params (threshold, ratio, attack…) push AFTER start via applyPersistedMbcConfig.
         dm.mbcEnabled = eqPrefs.getMbcEnabled()
         dm.mbcBandCount = eqPrefs.getMbcBandCount()
         val started = service.startEq(parametricEq)
@@ -852,23 +782,17 @@ class EqStateManager(
             Toast.makeText(context, "Failed to start DynamicsProcessing", Toast.LENGTH_SHORT).show()
             return
         }
-        // Push the saved MBC band params + crossovers to the live DP.
-        // Without this, MBC would say "on" in the UI but every band
-        // would be at DynamicsProcessing's default (ratio=1, etc.) —
-        // a no-op compressor that only "wakes up" when the user
-        // touched a slider in MbcActivity. Fixes the report in the
-        // MBC-zombie-state issue.
+        // Push saved MBC band params + crossovers to the live DP — otherwise MBC reads "on" in the
+        // UI but every band sits at DP defaults (ratio=1, no-op compressor) until a slider is
+        // touched in MbcActivity (MBC-zombie-state issue).
         service.applyPersistedMbcConfig()
-        // If Channel Side EQ is on, fan out the distinct L/R responses now
-        // that DP is live.
+        // With Channel Side EQ on, fan out the distinct L/R responses now that DP is live
         if (eqPrefs.getChannelSideEqEnabled()) {
             val (lEq, rEq) = getChannelEqs()
             if (lEq !== rEq) service.updateEqPerChannel(lEq, rEq)
         }
-        // TV Mode (issues #35/#55): isProcessing just flipped ON — this is
-        // the ONLY reliable signal on the normal power-button path (the
-        // EQ_STARTED broadcast fires only on the QS-tile path), so sync the
-        // power state to the peer from here.
+        // TV Mode (issues #35/#55): isProcessing just flipped ON — the ONLY reliable signal on the
+        // power-button path (EQ_STARTED broadcast fires only on the QS-tile path); sync power state to peer.
         onEqPushed?.invoke()
     }
 
@@ -910,14 +834,10 @@ class EqStateManager(
     fun saveState() {
         // Keep tethered twins in sync before persisting (issue #53).
         syncBothBands()
-        // Don't pollute the "bands" pref with Simple-mode band data. In
-        // Simple mode `parametricEq` holds the 10 fixed BELL bands —
-        // writing them to "bands" would overwrite the user's advanced
-        // EQ. The advanced EQ is preserved separately via
-        // [eqPrefs.saveAdvancedEqBackup] when the user enters Simple
-        // mode; that's the canonical source on next launch. Simple
-        // gains have their own pref ("simpleEqGains") written by
-        // [SimpleEqController.saveGains].
+        // Don't write Simple-mode bands to the "bands" pref: in Simple mode parametricEq holds the
+        // 10 fixed BELL bands, which would overwrite the user's advanced EQ. The advanced EQ is
+        // preserved via [eqPrefs.saveAdvancedEqBackup] on entering Simple mode (canonical on next
+        // launch); Simple gains persist in their own "simpleEqGains" pref via [SimpleEqController.saveGains].
         if (currentEqUiMode != EqUiMode.SIMPLE) {
             eqPrefs.saveState(parametricEq, bandSlots)
         }
@@ -935,10 +855,9 @@ class EqStateManager(
         eqPrefs.saveLimiterPostGain(limiterPostGainDb)
     }
 
-    /** Mirror the active-EQ save so L/R divergence survives an app restart.
-     *  Safe to call even when CSE is off — becomes a no-op. Callsites that
-     *  save the active EQ directly via `eqPrefs.saveState(parametricEq, ...)`
-     *  should also invoke this so the non-active channel's state isn't lost. */
+    /** Mirror the active-EQ save so L/R divergence survives restart; no-op when CSE is off.
+     *  Callsites saving via `eqPrefs.saveState(parametricEq, ...)` should also invoke this so the
+     *  non-active channel's state isn't lost. */
     fun persistLeftRightIfCse() {
         if (eqPrefs.getChannelSideEqEnabled()) {
             eqPrefs.saveLeftBands(leftEq, leftBandSlots)
