@@ -319,18 +319,25 @@ class EqStateManager(
      *  with a full DP-band rewrite per touch event. Call [flushEqUpdate] on drag-end (ACTION_UP). */
     fun pushEqUpdateThrottled() {
         if (!isProcessing) return
+        // Issue #61: a live drag freezes the DP cutoff layout and the
+        // auto-gain offset — every mid-drag write is then a pure gain
+        // update instead of a layout reconfigure + stepped whole-mix duck.
+        ParametricToDpConverter.layoutFrozen = true
+        eqService?.dynamicsManager?.gainHold = true
         if (updatePending) return
         updatePending = true
         updateHandler.postDelayed(flushUpdate, 16L)
     }
 
     /** Cancel any queued throttled update and push now — used at drag-end so the final value
-     *  commits without a frame of latency. */
+     *  commits without a frame of latency (with a fresh layout + auto-gain, see #61). */
     fun flushEqUpdate() {
         if (updatePending) {
             updateHandler.removeCallbacks(flushUpdate)
             updatePending = false
         }
+        ParametricToDpConverter.layoutFrozen = false
+        eqService?.dynamicsManager?.gainHold = false
         pushEqUpdate()
     }
 

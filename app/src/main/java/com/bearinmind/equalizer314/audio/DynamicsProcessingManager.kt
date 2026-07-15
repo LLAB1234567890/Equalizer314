@@ -92,6 +92,12 @@ class DynamicsProcessingManager {
     var autoGainEnabled: Boolean = false
     var lastAutoGainOffset: Float = 0f
         private set
+    // Issue #61: hold the auto-gain offset steady during a drag. Recomputing
+    // per write ducks the WHOLE mix in 20-60 steps/s while boosting — an
+    // audible pumping/"choke". Held offset may transiently under-protect a
+    // growing boost; the limiter covers that until drag-end recomputes.
+    @Volatile
+    var gainHold = false
 
     // MBC
     var mbcEnabled: Boolean = false
@@ -122,6 +128,20 @@ class DynamicsProcessingManager {
     @Volatile private var pendingApply: Runnable? = null
     @Volatile private var pendingLimiter: Runnable? = null
 
+    // Issue #61 (Pixel 8a stutter/dropout during drags): space DP band
+    // writes ≥50 ms apart. A 16 ms rewrite storm — with the adaptive cutoff
+    // layout reshuffling per frame on HF drags — forces a per-write effect
+    // reconfigure that some HALs (Pixel/AIDL era) render as an audible
+    // bypass stutter. 20 writes/s still feels live.
+    private val minWriteSpacingMs = 50L
+    @Volatile private var lastWriteAtMs = 0L
+    // Retry for writes skipped on transient control loss: if control comes
+    // back AFTER the final drag write was skipped, nothing else re-applies
+    // the bands (watchdog sees a healthy DP) and audio stays unprocessed.
+    private val retryHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    @Volatile private var controlRetryPending = false
+    @Volatile private var controlRetryCount = 0
+
     fun start(eq: ParametricEqualizer) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
             Log.e(TAG, "DynamicsProcessing requires API 28+")
@@ -130,6 +150,9 @@ class DynamicsProcessingManager {
 
         stop() // Clean up any existing instance
 
+        // A recreate mid-drag must not carry stale drag-freeze state (#61).
+        ParametricToDpConverter.layoutFrozen = false
+        gainHold = false
         // Keep the converter's model of DP's FFT geometry in sync so its
         // deconvolution matches the engine (issue #26).
         ParametricToDpConverter.frameDurationMs = frameDurationMs
@@ -416,20 +439,21 @@ class DynamicsProcessingManager {
         // Auto-gain: bring the loudest band to ≤ 0 dB. Applied as a flat
         // shift to all bands so it preserves EQ shape.
         if (autoGainEnabled) {
-            var peak = Float.NEGATIVE_INFINITY
-            if (useInterleave && leftPostGains != null && rightPostGains != null) {
-                // Split-half: each stage carries HALF the curve, so the true
-                // response peak is ~2× a single stage's gain. Scan both
-                // stages' full-curve equivalents.
-                for (g in leftGains) if (2f * g > peak) peak = 2f * g
-                for (g in rightGains) if (2f * g > peak) peak = 2f * g
-                for (g in leftPostGains) if (2f * g > peak) peak = 2f * g
-                for (g in rightPostGains) if (2f * g > peak) peak = 2f * g
-            } else {
-                for (g in leftGains) if (g > peak) peak = g
-                for (g in rightGains) if (g > peak) peak = g
+            if (!gainHold) {
+                var peak = Float.NEGATIVE_INFINITY
+                if (useInterleave && leftPostGains != null && rightPostGains != null) {
+                    // Split-half: each stage carries HALF the curve, so the
+                    // true response peak is ~2× a single stage's gain.
+                    for (g in leftGains) if (2f * g > peak) peak = 2f * g
+                    for (g in rightGains) if (2f * g > peak) peak = 2f * g
+                    for (g in leftPostGains) if (2f * g > peak) peak = 2f * g
+                    for (g in rightPostGains) if (2f * g > peak) peak = 2f * g
+                } else {
+                    for (g in leftGains) if (g > peak) peak = g
+                    for (g in rightGains) if (g > peak) peak = g
+                }
+                lastAutoGainOffset = if (peak > 0f) -peak else 0f
             }
-            lastAutoGainOffset = if (peak > 0f) -peak else 0f
             if (lastAutoGainOffset != 0f) {
                 // Flat shift on the Pre stage only — the per-bin total moves
                 // by exactly the offset either way, and Post stays pure shape.
@@ -489,9 +513,11 @@ class DynamicsProcessingManager {
                 // (a6/n0.smali) — without control all setters silently no-op.
                 // Skip; reclaimSession() recreates when control returns.
                 if (!dp.hasControl()) {
-                    Log.w(TAG, "DP lost control — skipping band write")
+                    Log.w(TAG, "DP lost control — band write skipped, scheduling retry")
+                    scheduleControlRetry()
                     return@Runnable
                 }
+                controlRetryCount = 0
                 // Preamp + offset via input-gain stage; Wavelet uses
                 // per-channel values (a6/b0.smali:343,379).
                 try {
@@ -522,6 +548,7 @@ class DynamicsProcessingManager {
                     dp.setPostEqByChannelIndex(0, leftPostObj)
                     dp.setPostEqByChannelIndex(1, rightPostObj)
                 }
+                lastWriteAtMs = android.os.SystemClock.uptimeMillis()
             } catch (e: Exception) {
                 Log.e(TAG, "DP band write failed", e)
             } finally {
@@ -530,7 +557,34 @@ class DynamicsProcessingManager {
         }
         pendingApply?.let { workerHandler.removeCallbacks(it) }
         pendingApply = job
-        workerHandler.post(job)
+        val delay = (lastWriteAtMs + minWriteSpacingMs - android.os.SystemClock.uptimeMillis())
+            .coerceIn(0L, minWriteSpacingMs)
+        workerHandler.postDelayed(job, delay)
+    }
+
+    /** Re-apply the latest EQ state once transient session-0 control loss
+     *  passes (issue #61 — the skipped final drag write left DP with stale
+     *  bands). Retries on the main thread (the live ParametricEqualizer is
+     *  main-thread-owned); after 4 misses falls back to a full reclaim. */
+    private fun scheduleControlRetry() {
+        if (controlRetryPending) return
+        controlRetryPending = true
+        retryHandler.postDelayed({
+            controlRetryPending = false
+            val dp = dynamicsProcessing ?: return@postDelayed
+            val eq = lastEq ?: return@postDelayed
+            if (!isActive) return@postDelayed
+            val hasControl = try { dp.hasControl() } catch (_: Throwable) { false }
+            if (hasControl) {
+                Log.i(TAG, "control restored — re-applying skipped band write")
+                try { applyParametricResponse(dp, eq, lastRightEq ?: eq) } catch (_: Exception) {}
+            } else if (++controlRetryCount >= 4) {
+                controlRetryCount = 0
+                reclaimSession()
+            } else {
+                scheduleControlRetry()
+            }
+        }, 300L)
     }
 
     /**

@@ -286,13 +286,34 @@ object ParametricToDpConverter {
      * worst-case rendering error ~0.25 dB at a 40 ms frame (~0.1 dB over
      * most of the range), vs ~1 dB before.
      */
+    /** Issue #61: while a graph drag is live, FREEZE the cutoff layout and
+     *  refit gains only — the adaptive layout otherwise reshuffles every
+     *  frame (gain changes move the variation function too), so each DP
+     *  write is a full reconfigure some HALs (Pixel) render as a bypass
+     *  stutter. Set by EqStateManager on the first throttled push; cleared
+     *  at drag-end flush so the final write gets a fresh optimal layout. */
+    @Volatile
+    var layoutFrozen = false
+        set(value) {
+            field = value
+            if (!value) frozenCutoffs = null
+        }
+    private var frozenCutoffs: FloatArray? = null
+
     fun convertFeatureAware(eq: ParametricEqualizer): ConvertedBands {
         val total = numBands
         val fs = deviceSampleRateHz
         val n = dpBlockSize(fs)
         val binHz = fs / n
 
-        val cutoffs = adaptiveCutoffs(eq, collectAnchors(eq), total, binHz)
+        val frozen = if (layoutFrozen) frozenCutoffs else null
+        val cutoffs = if (frozen != null && frozen.size == total) {
+            frozen
+        } else {
+            adaptiveCutoffs(eq, collectAnchors(eq), total, binHz).also {
+                if (layoutFrozen) frozenCutoffs = it
+            }
+        }
         return ConvertedBands(cutoffs, bandSpaceDeconvolve(eq, cutoffs, n, fs))
     }
 
