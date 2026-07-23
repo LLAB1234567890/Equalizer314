@@ -4,6 +4,10 @@
 <a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/{%22id%22:%22com.bearinmind.equalizer314%22,%22url%22:%22https://github.com/bearinmindcat/Equalizer314%22,%22author%22:%22bearinmindcat%22,%22name%22:%22Equalizer314%22}"><img src="https://raw.githubusercontent.com/ImranR98/Obtainium/b1c8ac6f2ab08497189721a788a5763e28ff64cd/assets/graphics/badge_obtainium.png" alt="Get it on Obtainium" height="70"></a>
 <a href="https://f-droid.org/packages/com.bearinmind.equalizer314/"><img src="https://fdroid.gitlab.io/artwork/badge/get-it-on.png" alt="Get it on F-Droid" height="70"></a>
 
+<img src="https://img.shields.io/badge/Requires-Android%209.0%2B%20(API%2028)-3DDC84?logo=android&logoColor=white" alt="Requires Android 9.0+ (API 28)">
+
+> **Requires Android 9.0 or newer** — the equalizer is built on Android's `DynamicsProcessing` engine, added in Android 9. The APK will install on Android 7.0+, but the EQ cannot function below Android 9.
+
 ⚠️ PSA; shit will go wrong while using this app, there will be features missing that you wish I added; but this app is in **BETA** and in the very early stages of testing and development, so I'll try to make note of your issues, run through them myself and fix them as quick as possible. My goal is to get this app to a clean smooth state, but in order to do that, people like you can help test and present issues & features that come up. I will do my best to fix everything in a timely manner while incorperating **YOUR** feature wishlist in a way that I think will work for everyone :)
 
 ⚠️ Another PSA; these stores below are in the pipeline. As my apps get approved on each of them I'll move them up to the section right underneath the title section of the readme. As of now these links take you nowhere. With that being said, you may wait for the app to be uploaded to a trusted store, and I'll continue developing and making changes for those of you who download it the "raw" way. Thanks again.
