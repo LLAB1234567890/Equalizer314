@@ -127,4 +127,74 @@ object LegacyFeatures {
     // only its UI entry points were removed. Persisted balance/channel-gain
     // prefs continue to apply to the DP via EqStateManager.
     // =====================================================================
+
+    // =====================================================================
+    // Graphic mode tab (main screen)
+    // Retired 2026-07-23.
+    //
+    // What it was: the "Graphic" tab in the main screen's EQ-mode grid
+    // (Parametric | Graphic / Table | Simple) — a slider-per-band graphic
+    // EQ view driven by GraphicEqController.
+    //
+    // What was changed (hidden, not deleted):
+    //
+    // 1) activity_main.xml — modeGraphicBtn got android:visibility="gone";
+    //    the button and its styling remain in the layout. Parametric now
+    //    fills row 1 via layout_weight.
+    //
+    // 2) MainActivity — the tab's click listener:
+    //
+    //    modeGraphicBtn.setOnClickListener {
+    //        eqPrefs.saveSimpleEqEnabled(false); switchEqUiMode(EqUiMode.GRAPHIC)
+    //    }
+    //
+    // 3) MainActivity — mode restore maps a persisted GRAPHIC mode to
+    //    PARAMETRIC so nobody boots into a tab-less mode.
+    //
+    // Note: EqUiMode.GRAPHIC, GraphicEqController, and switchEqUiMode's
+    // GRAPHIC branch all remain fully functional — un-hiding the button
+    // and restoring the listener + removing the restore mapping brings the
+    // mode back exactly as it was.
+    // =====================================================================
+
+    // =====================================================================
+    // Simple mode tab (main screen)
+    // Retired 2026-07-23 (same pass as the Graphic tab).
+    //
+    // What it was: the "Simple" tab in the main screen's EQ-mode grid — a
+    // 10-band bars view (SimpleEqController / SimpleEqBarsView) driven by
+    // the simpleEqEnabled pref, which also had an override that forced
+    // SIMPLE mode at launch and on resume.
+    //
+    // What was changed (hidden, not deleted):
+    //
+    // 1) activity_main.xml — modeSimpleBtn got android:visibility="gone";
+    //    Table now fills row 2 via layout_weight.
+    //
+    // 2) MainActivity — the tab's click listener:
+    //
+    //    modeSimpleBtn.setOnClickListener {
+    //        eqPrefs.saveSimpleEqEnabled(true); switchEqUiMode(EqUiMode.SIMPLE)
+    //    }
+    //
+    // 3) MainActivity launch: `effectiveMode = if (getSimpleEqEnabled())
+    //    SIMPLE else savedMode` override removed; saved GRAPHIC/SIMPLE modes
+    //    map to PARAMETRIC.
+    //
+    // 4) MainActivity onResume: the simpleEqEnabled two-way sync block
+    //    replaced by a one-way "if somehow in SIMPLE, fall back to
+    //    Parametric" guard:
+    //
+    //    val simpleEqEnabled = eqPrefs.getSimpleEqEnabled()
+    //    if (simpleEqEnabled && currentEqUiMode != SIMPLE) {
+    //        switchEqUiMode(SIMPLE)
+    //    } else if (!simpleEqEnabled && currentEqUiMode == SIMPLE) {
+    //        switchEqUiMode(savedModeFallback)
+    //    }
+    //
+    // Note: EqUiMode.SIMPLE, SimpleEqController, SimpleEqBarsView, the
+    // simpleEqEnabled pref, and switchEqUiMode's SIMPLE branch all remain —
+    // un-hide the button, restore the listener and the two override blocks
+    // to bring the mode back.
+    // =====================================================================
 }

@@ -653,8 +653,11 @@ class  MainActivity : AppCompatActivity() {
         }
 
         val savedMode = try { EqUiMode.valueOf(eqPrefs.getEqUiMode()) } catch (_: Exception) { EqUiMode.PARAMETRIC }
-        val effectiveMode = if (eqPrefs.getSimpleEqEnabled()) EqUiMode.SIMPLE else savedMode
-        switchEqUiMode(effectiveMode)
+            // Graphic + Simple tabs retired: a saved mode with no visible
+            // tab lands on Parametric (see LegacyFeatures.kt). The
+            // simpleEqEnabled pref override is retired with the tab.
+            .let { if (it == EqUiMode.GRAPHIC || it == EqUiMode.SIMPLE) EqUiMode.PARAMETRIC else it }
+        switchEqUiMode(savedMode)
         // Ensure rows are properly ordered after views are laid out
         pageEq.post { reorderToggleRows(animate = false) }
 
@@ -2367,9 +2370,9 @@ class  MainActivity : AppCompatActivity() {
         // EQ mode selector: advanced modes clear the Simple flag, Simple sets it.
         // Persisted so the choice survives restart and matches the settings switch.
         modeParametricBtn.setOnClickListener { eqPrefs.saveSimpleEqEnabled(false); switchEqUiMode(EqUiMode.PARAMETRIC) }
-        modeGraphicBtn.setOnClickListener { eqPrefs.saveSimpleEqEnabled(false); switchEqUiMode(EqUiMode.GRAPHIC) }
+        // Graphic mode tab retired (hidden in XML) — see LegacyFeatures.kt.
         modeTableBtn.setOnClickListener { eqPrefs.saveSimpleEqEnabled(false); switchEqUiMode(EqUiMode.TABLE) }
-        modeSimpleBtn.setOnClickListener { eqPrefs.saveSimpleEqEnabled(true); switchEqUiMode(EqUiMode.SIMPLE) }
+        // Simple mode tab retired (hidden in XML) — see LegacyFeatures.kt.
 
         // Settings controls
         setupSettingsListeners()
@@ -4304,12 +4307,11 @@ class  MainActivity : AppCompatActivity() {
         updateAutoEqStatus()
         updateTargetStatus()
 
-        val simpleEqEnabled = eqPrefs.getSimpleEqEnabled()
-        if (simpleEqEnabled && stateManager.currentEqUiMode != EqUiMode.SIMPLE) {
-            switchEqUiMode(EqUiMode.SIMPLE)
-        } else if (!simpleEqEnabled && stateManager.currentEqUiMode == EqUiMode.SIMPLE) {
-            val fallback = try { EqUiMode.valueOf(eqPrefs.getEqUiMode()) } catch (_: Exception) { EqUiMode.PARAMETRIC }
-            switchEqUiMode(fallback)
+        // Simple mode retired — the simpleEqEnabled resume-sync is retired
+        // with it, except one direction: if something left us IN Simple
+        // mode, fall back to a visible tab (see LegacyFeatures.kt).
+        if (stateManager.currentEqUiMode == EqUiMode.SIMPLE) {
+            switchEqUiMode(EqUiMode.PARAMETRIC)
         }
     }
 

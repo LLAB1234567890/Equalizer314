@@ -31,11 +31,10 @@
                 android:paddingTop="0dp"
                 android:paddingBottom="0dp">
 
-                <!-- EQ Mode Selector — 2×2 grid: Parametric / Graphic on
-                     the first row, Table / Simple on the second. Buttons
-                     are slimmed top-to-bottom (insets 0, small vertical
-                     padding) and the whole group is pushed down a touch
-                     so the graph below isn't crowded by the extra row. -->
+                <!-- EQ Mode Selector — single row: Parametric | Table
+                     (Graphic + Simple tabs retired/hidden, see
+                     LegacyFeatures.kt). The freed row's height went to
+                     the graph below. -->
                 <LinearLayout
                     android:id="@+id/modeSelectorGroup"
                     android:layout_width="match_parent"
@@ -65,6 +64,8 @@
                             android:paddingBottom="7dp"
                             app:cornerRadius="12dp" />
 
+                        <!-- Graphic mode tab retired — hidden, not removed
+                             (see LegacyFeatures.kt). -->
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/modeGraphicBtn"
                             style="@style/Widget.Material3.Button.OutlinedButton"
@@ -72,6 +73,7 @@
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:layout_marginStart="4dp"
+                            android:visibility="gone"
                             android:text="Graphic"
                             android:textSize="12sp"
                             android:minHeight="0dp"
@@ -80,13 +82,6 @@
                             android:paddingTop="7dp"
                             android:paddingBottom="7dp"
                             app:cornerRadius="12dp" />
-                    </LinearLayout>
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:layout_marginTop="8dp">
 
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/modeTableBtn"
@@ -94,7 +89,7 @@
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:layout_marginEnd="4dp"
+                            android:layout_marginStart="4dp"
                             android:text="Table"
                             android:textSize="12sp"
                             android:minHeight="0dp"
@@ -104,6 +99,8 @@
                             android:paddingBottom="7dp"
                             app:cornerRadius="12dp" />
 
+                        <!-- Simple mode tab retired — hidden, not removed
+                             (see LegacyFeatures.kt). -->
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/modeSimpleBtn"
                             style="@style/Widget.Material3.Button.OutlinedButton"
@@ -111,6 +108,7 @@
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:layout_marginStart="4dp"
+                            android:visibility="gone"
                             android:text="Simple"
                             android:textSize="12sp"
                             android:minHeight="0dp"
@@ -137,10 +135,12 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content">
 
+                        <!-- 246dp + ~42dp reclaimed from the retired second
+                             mode-selector row. -->
                         <com.bearinmind.equalizer314.ui.EqGraphView
                             android:id="@+id/eqGraphView"
                             android:layout_width="match_parent"
-                            android:layout_height="246dp" />
+                            android:layout_height="288dp" />
 
                         <!-- Active device + preset indicator overlay.
                              Uses raw-pixel units (px) so it renders at
