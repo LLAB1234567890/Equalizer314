@@ -26,7 +26,7 @@ class MbcActivity : AppCompatActivity() {
     companion object {
         const val DEFAULT_BAND_COUNT = 3
         const val MIN_BAND_COUNT = 1
-        const val MAX_BAND_COUNT = 6
+        const val MAX_BAND_COUNT = 8
         // Default crossover frequencies for up to 6 bands (5 crossovers)
         val BAND_COLORS = intArrayOf(
             0xFFE57373.toInt(),  // red
@@ -34,18 +34,22 @@ class MbcActivity : AppCompatActivity() {
             0xFF64B5F6.toInt(),  // blue
             0xFFFFD54F.toInt(),  // yellow
             0xFFBA68C8.toInt(),  // purple
-            0xFF4DD0E1.toInt()   // cyan
+            0xFF4DD0E1.toInt(),  // cyan
+            0xFFFFB74D.toInt(),  // orange
+            0xFF7986CB.toInt()   // indigo
         )
         val DEFAULT_CROSSOVERS_BY_COUNT = mapOf(
             3 to floatArrayOf(200f, 2000f),
             4 to floatArrayOf(200f, 2000f, 5000f),
             5 to floatArrayOf(200f, 2000f, 5000f, 7000f),
-            6 to floatArrayOf(200f, 2000f, 5000f, 7000f, 10000f)
+            6 to floatArrayOf(200f, 2000f, 5000f, 7000f, 10000f),
+            7 to floatArrayOf(150f, 500f, 2000f, 5000f, 7000f, 10000f),
+            8 to floatArrayOf(100f, 300f, 1000f, 2500f, 5000f, 7500f, 11000f)
         )
         // Default cutoff frequencies per band index
-        val DEFAULT_CUTOFFS = floatArrayOf(200f, 700f, 2000f, 5000f, 7000f, 10000f)
+        val DEFAULT_CUTOFFS = floatArrayOf(200f, 700f, 2000f, 5000f, 7000f, 10000f, 12000f, 14000f)
         // Default range values per band index
-        val DEFAULT_RANGES = floatArrayOf(-4f, -8f, -6f, -6f, -6f, -6f)
+        val DEFAULT_RANGES = floatArrayOf(-4f, -8f, -6f, -6f, -6f, -6f, -6f, -6f)
     }
 
     private lateinit var eqPrefs: EqPreferencesManager
@@ -157,10 +161,12 @@ class MbcActivity : AppCompatActivity() {
         initViews()
         loadState()
 
-        // Initialize first 3 band colors with picker colors (blue, green, red)
+        // Seed band colors (picker palette) for all 8 possible bands.
         // Must happen BEFORE setupMbcGraph/selectBand so colors are available
         val defaultColors = intArrayOf(
-            0xFF90CAF9.toInt(), 0xFFA5D6A7.toInt(), 0xFFEF9A9A.toInt()
+            0xFF90CAF9.toInt(), 0xFFA5D6A7.toInt(), 0xFFEF9A9A.toInt(),
+            0xFFFFF59D.toInt(), 0xFFFFCC80.toInt(), 0xFFCE93D8.toInt(),
+            0xFF9FA8DA.toInt(), 0xFF80DEEA.toInt()
         )
         for (i in 0 until defaultColors.size.coerceAtMost(bandCount)) {
             if (!mbcBandColors.containsKey(i)) {
@@ -855,8 +861,8 @@ class MbcActivity : AppCompatActivity() {
         for (i in 0 until bandCount) {
             bandTabs.addView(createBandButton(i))
         }
-        // Only show (+) when bands have been removed below default count
-        if (bandCount < DEFAULT_BAND_COUNT) {
+        // Show (+) until the band cap (issue: more MBC bands for fine-tuning)
+        if (bandCount < MAX_BAND_COUNT) {
             bandTabs.addView(createAddButton())
         }
         updateTabHighlight()
@@ -1441,7 +1447,7 @@ class MbcActivity : AppCompatActivity() {
     }
 
     private fun addBand() {
-        if (bandCount >= DEFAULT_BAND_COUNT) return
+        if (bandCount >= MAX_BAND_COUNT) return
 
         val oldBandCount = bandCount
         bandCount++
@@ -1503,7 +1509,7 @@ class MbcActivity : AppCompatActivity() {
 
         // Target widths: all buttons share equally
         val totalWidth = buttonWidths.sum()
-        val atMax = bandCount >= DEFAULT_BAND_COUNT
+        val atMax = bandCount >= MAX_BAND_COUNT
         val newTotalButtons = bandCount + if (atMax) 0 else 1
         val targetWidth = totalWidth / newTotalButtons
 
@@ -1576,7 +1582,7 @@ class MbcActivity : AppCompatActivity() {
         val removeWidth = buttonWidths.getOrElse(index) { 0 }
 
         // If was at max (no "+"), add one at the end at width 0
-        val wasAtMax = bandCount == DEFAULT_BAND_COUNT
+        val wasAtMax = bandCount == MAX_BAND_COUNT
         if (wasAtMax) {
             val addBtn = createAddButton()
             val addLp = addBtn.layoutParams as LinearLayout.LayoutParams
