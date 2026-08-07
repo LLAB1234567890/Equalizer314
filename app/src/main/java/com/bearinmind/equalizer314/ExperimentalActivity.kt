@@ -35,6 +35,7 @@ class ExperimentalActivity : AppCompatActivity() {
         setupFrameSlider()
         setupInterleave()
         setupCompatMode()
+        setupMbcVolComp()
         setupTvMode()
 
         // Hide the legacy "Experimental DP Engine" switch row — the
@@ -54,8 +55,11 @@ class ExperimentalActivity : AppCompatActivity() {
     // Wavelet band table (ParametricToDpConverter.numBands), so we just show
     // that number rather than a slider that didn't actually change anything.
     private fun setupDpBandCount() {
+        // Reflect what the NEXT DP start will use: 32 in Compat Mode, else 128.
         findViewById<android.widget.TextView>(R.id.expDpBandCountValue).text =
-            com.bearinmind.equalizer314.dsp.ParametricToDpConverter.numBands.toString()
+            if (eqPrefs.getDpCompatMode())
+                com.bearinmind.equalizer314.audio.DynamicsProcessingManager.COMPAT_BAND_COUNT.toString()
+            else "128"
     }
 
     // Experimental "Add more EQ bands" toggle (issue #31). On → cap 64,
@@ -151,6 +155,22 @@ class ExperimentalActivity : AppCompatActivity() {
             eqPrefs.saveDpCompatMode(isChecked)
             com.bearinmind.equalizer314.audio.DynamicsProcessingManager.compatMode = isChecked
             requestDpRecycle()
+            setupDpBandCount()
+        }
+    }
+
+    // MBC thresholds follow the media volume (applies live via EqService).
+    private fun setupMbcVolComp() {
+        val switch = findViewById<com.google.android.material.materialswitch.MaterialSwitch>(R.id.expMbcVolCompSwitch)
+        switch.isChecked = eqPrefs.getMbcVolumeCompEnabled()
+        switch.setOnCheckedChangeListener { _, isChecked ->
+            eqPrefs.saveMbcVolumeCompEnabled(isChecked)
+            try {
+                startService(
+                    android.content.Intent(this, com.bearinmind.equalizer314.audio.EqService::class.java)
+                        .setAction(com.bearinmind.equalizer314.audio.EqService.ACTION_REAPPLY_MBC)
+                )
+            } catch (_: Exception) {}
         }
     }
 

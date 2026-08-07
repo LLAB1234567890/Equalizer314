@@ -102,6 +102,9 @@ class DynamicsProcessingManager {
     // MBC
     var mbcEnabled: Boolean = false
     var mbcBandCount: Int = 3
+    // Volume compensation: dB shift (≤0) added to MBC thresholds/gates so
+    // compression tracks the pre-volume signal. Set by EqService.
+    @Volatile var mbcThresholdOffsetDb: Float = 0f
 
     // Limiter defaults = Wavelet's `a6/z.java:105` baseline (1 ms attack,
     // 60 ms release, 10:1 ratio, −2 dB threshold, 0 dB post-gain).
@@ -649,6 +652,7 @@ class DynamicsProcessingManager {
         if (!mbcEnabled) return
 
         try {
+            val off = mbcThresholdOffsetDb
             for (i in bands.indices) {
                 val b = bands[i]
                 val cutoff = if (i < crossovers.size) crossovers[i] else 20000f
@@ -658,9 +662,9 @@ class DynamicsProcessingManager {
                     b.attackMs,
                     b.releaseMs,
                     b.ratio,
-                    b.thresholdDb,
+                    (b.thresholdDb + off).coerceIn(-125f, 0f),
                     b.kneeDb,
-                    b.noiseGateDb,
+                    (b.noiseGateDb + off).coerceIn(-125f, 0f),
                     b.expanderRatio,
                     b.preGainDb,
                     b.postGainDb

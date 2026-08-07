@@ -302,6 +302,10 @@ class EqPreferencesManager(context: Context) {
     // Baked at DP creation; needs an EQ power cycle. Default = auto-on for
     // Google/Pixel (most-reported band-limited HAL) so those users get a
     // correct curve out of the box; everyone else defaults off + manual toggle.
+    // MBC volume compensation: thresholds/gates follow the media volume (opt-in).
+    fun saveMbcVolumeCompEnabled(enabled: Boolean) { prefs.edit().putBoolean("mbcVolumeComp", enabled).apply() }
+    fun getMbcVolumeCompEnabled(): Boolean = prefs.getBoolean("mbcVolumeComp", false)
+
     fun saveDpCompatMode(enabled: Boolean) { prefs.edit().putBoolean("dpCompatMode", enabled).apply() }
     fun getDpCompatMode(): Boolean =
         prefs.getBoolean("dpCompatMode", defaultCompatMode())

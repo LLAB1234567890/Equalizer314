@@ -32,6 +32,7 @@ class EqService : Service() {
         const val ACTION_RECYCLE_DP = "com.bearinmind.equalizer314.RECYCLE_DP"
         const val ACTION_DP_RECYCLED = "com.bearinmind.equalizer314.DP_RECYCLED"
         const val ACTION_TVMODE_REFRESH = "com.bearinmind.equalizer314.TVMODE_REFRESH"
+        const val ACTION_REAPPLY_MBC = "com.bearinmind.equalizer314.REAPPLY_MBC"
         /** Tile counterpart to [ACTION_STOP]: loads persisted EQ state and
          *  starts DynamicsProcessing without MainActivity running. */
         const val ACTION_START_FROM_TILE = "com.bearinmind.equalizer314.START_FROM_TILE"
@@ -178,7 +179,34 @@ class EqService : Service() {
     private val volumeReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             updateNotification()
+            // MBC volume compensation: re-apply thresholds at the new volume.
+            if (EqPreferencesManager(this@EqService).getMbcVolumeCompEnabled()) {
+                mbcCompHandler.removeCallbacks(mbcCompRunnable)
+                mbcCompHandler.postDelayed(mbcCompRunnable, 150L)
+            }
         }
+    }
+
+    private val mbcCompHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val mbcCompRunnable = Runnable { applyPersistedMbcConfig() }
+
+    /** Media-volume attenuation vs max for the active route, in dB (≤0). */
+    private fun currentVolumeAttenuationDb(): Float {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return 0f
+        return try {
+            val am = getSystemService(AudioManager::class.java)
+            val dev = when {
+                lastDeviceKey?.startsWith("BT:") == true -> android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
+                lastDeviceKey?.startsWith("USB") == true -> android.media.AudioDeviceInfo.TYPE_USB_HEADSET
+                lastDeviceKey?.startsWith("WIRED") == true -> android.media.AudioDeviceInfo.TYPE_WIRED_HEADPHONES
+                else -> android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
+            }
+            val cur = am.getStreamVolumeDb(
+                AudioManager.STREAM_MUSIC, am.getStreamVolume(AudioManager.STREAM_MUSIC), dev)
+            val max = am.getStreamVolumeDb(
+                AudioManager.STREAM_MUSIC, am.getStreamMaxVolume(AudioManager.STREAM_MUSIC), dev)
+            (cur - max).coerceIn(-60f, 0f)
+        } catch (_: Exception) { 0f }
     }
 
     /** Label of the currently-routed output (BT name, "Phone speaker",
@@ -479,6 +507,11 @@ class EqService : Service() {
                 } else {
                     updateNotification()
                 }
+                return START_NOT_STICKY
+            }
+            ACTION_REAPPLY_MBC -> {
+                // MBC volume-compensation toggle changed — re-apply thresholds.
+                applyPersistedMbcConfig()
                 return START_NOT_STICKY
             }
             ACTION_RECYCLE_DP -> {
@@ -836,6 +869,9 @@ class EqService : Service() {
         if (!dynamicsManager.isActive) return
         if (!dynamicsManager.mbcEnabled) return
         val p = EqPreferencesManager(this)
+        // Volume compensation: thresholds track the media volume when enabled.
+        dynamicsManager.mbcThresholdOffsetDb =
+            if (p.getMbcVolumeCompEnabled()) currentVolumeAttenuationDb() else 0f
         val bandCount = dynamicsManager.mbcBandCount
         val bands = (0 until bandCount).map { i ->
             DynamicsProcessingManager.MbcBandParams(
