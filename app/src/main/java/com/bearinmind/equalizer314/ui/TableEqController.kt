@@ -167,7 +167,11 @@ class TableEqController(
                     val item = TextView(activity).apply {
                         text = name
                         textSize = 16f
-                        setTextColor(0xFFE2E2E2.toInt())
+                        // Theme-aware: the BottomSheetDialog background follows
+                        // light/dark, so hardcoded near-white text vanished in
+                        // light theme (issue #66).
+                        setTextColor(com.google.android.material.color.MaterialColors.getColor(
+                            this, com.google.android.material.R.attr.colorOnSurface, 0xFFE2E2E2.toInt()))
                         setPadding((16 * density).toInt(), (14 * density).toInt(), (16 * density).toInt(), (14 * density).toInt())
                         setOnClickListener {
                             val b = eq.getBand(bandIndex) ?: return@setOnClickListener
@@ -298,7 +302,9 @@ class TableEqController(
         val title = TextView(activity).apply {
             text = "Band Color"
             textSize = 16f
-            setTextColor(0xFFE2E2E2.toInt())
+            // Theme-aware for light mode (issue #66).
+            setTextColor(com.google.android.material.color.MaterialColors.getColor(
+                this, com.google.android.material.R.attr.colorOnSurface, 0xFFE2E2E2.toInt()))
             setPadding(0, 0, 0, (12 * density).toInt())
         }
         sheetLayout.addView(title)
