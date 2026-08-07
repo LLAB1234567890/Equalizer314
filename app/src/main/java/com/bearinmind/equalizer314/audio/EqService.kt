@@ -448,6 +448,8 @@ class EqService : Service() {
     private fun safeStartForeground(): Boolean {
         return try {
             startForeground(NOTIFICATION_ID, buildNotification())
+            // Re-assert hide-when-off so service pings can't resurrect a hidden notification (issue #58).
+            updateNotification()
             true
         } catch (e: Exception) {
             Log.w(TAG, "startForeground blocked (${e.javaClass.simpleName}): ${e.message}")
@@ -693,6 +695,14 @@ class EqService : Service() {
         }
 
         if (!safeStartForeground()) return START_NOT_STICKY
+        // null intent = OS restarted the killed STICKY service — restore the DP if power was on.
+        if (intent == null && !dynamicsManager.isActive) {
+            val p = EqPreferencesManager(this)
+            if (p.getPowerState() && p.getAudioRoutingMode() != 1) {
+                Log.i(TAG, "STICKY restart with power on — restoring DP via AUTO_START")
+                startService(Intent(this, EqService::class.java).setAction(ACTION_AUTO_START))
+            }
+        }
         return START_STICKY
     }
 
