@@ -315,6 +315,14 @@ class EqService : Service() {
     private val systemSoundCallback = object : AudioManager.AudioPlaybackCallback() {
         override fun onPlaybackConfigChanged(configs: MutableList<AudioPlaybackConfiguration>?) {
             applySystemSoundBypass(configs ?: emptyList())
+            // API 33+: report the actual routed device (output-switcher moves fire no device callbacks).
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                val routed = configs
+                    ?.filter { it.audioAttributes.usage == android.media.AudioAttributes.USAGE_MEDIA }
+                    ?.firstNotNullOfOrNull { it.audioDeviceInfo }
+                    ?: configs?.firstNotNullOfOrNull { it.audioDeviceInfo }
+                routingMonitor?.reportRoutedDevice(routed)
+            }
             // Playback config changes are exactly when OEM ROMs drop the
             // session-0 effect — re-verify after the foreign session settles
             // (mirrors reclaimSession's small delay).

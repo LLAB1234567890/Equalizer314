@@ -1853,6 +1853,9 @@ class  MainActivity : AppCompatActivity() {
                     val leftBands = if (obj.has("leftBands")) parseBands(obj.getJSONArray("leftBands")) else bothBands
                     val rightBands = if (obj.has("rightBands")) parseBands(obj.getJSONArray("rightBands")) else bothBands
                     stateManager.applyPresetEqs(cseOn, bothBands, leftBands, rightBands)
+                    // Full-chain presets: apply MBC + limiter when present.
+                    com.bearinmind.equalizer314.state.PresetChainIo.applyChain(
+                        this, obj, eqPrefs, stateManager.eqService?.dynamicsManager)
 
                     eqGraphView.setParametricEqualizer(stateManager.parametricEq)
                     stateManager.eqPrefs.saveState(stateManager.parametricEq)
@@ -2405,6 +2408,9 @@ class  MainActivity : AppCompatActivity() {
         val bothBands = if (obj.has("bands")) parseBands(obj.getJSONArray("bands")) else emptyList()
         val leftBands = if (obj.has("leftBands")) parseBands(obj.getJSONArray("leftBands")) else bothBands
         val rightBands = if (obj.has("rightBands")) parseBands(obj.getJSONArray("rightBands")) else bothBands
+        // Full-chain sync: MBC + limiter follow the peer when present.
+        com.bearinmind.equalizer314.state.PresetChainIo.applyChain(
+            this, obj, eqPrefs, stateManager.eqService?.dynamicsManager)
 
         // Structure signature (band count + filter types + enabled flags): value-only
         // syncs (remote drag = gain/freq/Q) must NOT rebuild toggle rows — rebuilding
@@ -2577,6 +2583,8 @@ class  MainActivity : AppCompatActivity() {
         } else {
             json.put("bands", serialize(stateManager.parametricEq))
         }
+        // Full-chain presets: MBC + limiter ride along (applied when present).
+        com.bearinmind.equalizer314.state.PresetChainIo.appendChain(json, eqPrefs)
         return json.toString()
     }
 

@@ -103,6 +103,9 @@ class RouteSwitchCoordinator(
             }
         }
 
+        // Full-chain presets: apply MBC + limiter too.
+        com.bearinmind.equalizer314.state.PresetChainIo.applyChain(context, preset, eqPrefs, dynamicsManager)
+
         // Persist active preset name so getPresetName() reflects what's driving audio. EqService's
         // notification reads it for "Preset: X" in the BigText body; MainActivity's dropdown stays in sync.
         eqPrefs.savePresetName(binding.presetName)

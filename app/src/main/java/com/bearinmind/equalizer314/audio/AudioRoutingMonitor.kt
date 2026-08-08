@@ -49,6 +49,20 @@ class AudioRoutingMonitor(
     private var lastEmittedKey: String? = null
     private var registered = false
 
+    // Actual routed device from AudioPlaybackConfiguration (API 33+); overrides the priority guess.
+    private var observedKey: String? = null
+    private var observedLabel: String? = null
+
+    /** Feed the routed device observed on a live playback config (API 33+). */
+    fun reportRoutedDevice(info: AudioDeviceInfo?) {
+        if (info == null) return
+        val key = DeviceIdentity.keyOf(info) ?: return
+        if (key == observedKey) return
+        observedKey = key
+        observedLabel = DeviceIdentity.labelOf(info)
+        schedule()
+    }
+
     private val deviceCallback = object : AudioDeviceCallback() {
         override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>?) {
             // Remember every tracked output on appearance (not just when active) so a freshly
@@ -58,6 +72,13 @@ class AudioRoutingMonitor(
         }
 
         override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>?) {
+            // Drop a stale observation if its device just disappeared.
+            removedDevices?.forEach {
+                if (DeviceIdentity.keyOf(it) == observedKey) {
+                    observedKey = null
+                    observedLabel = null
+                }
+            }
             schedule()
         }
     }
@@ -87,8 +108,7 @@ class AudioRoutingMonitor(
             context.registerReceiver(noisyReceiver, filter)
         }
         registered = true
-        // Kick once immediately so a cold-start with a device already
-        // routed emits a RouteChange.
+        // Kick once so a cold-start emits the already-routed device.
         schedule()
     }
 
@@ -110,9 +130,18 @@ class AudioRoutingMonitor(
         // changes can happen without the active-sink key changing.
         onRouteRebuild?.invoke()
 
-        val active = pickActiveOutput() ?: return
-        val key = DeviceIdentity.keyOf(active) ?: return
-        val label = DeviceIdentity.labelOf(active)
+        // Observed routed device beats the priority guess.
+        val key: String
+        val label: String
+        val obs = observedKey
+        if (obs != null) {
+            key = obs
+            label = observedLabel ?: ""
+        } else {
+            val active = pickActiveOutput() ?: return
+            key = DeviceIdentity.keyOf(active) ?: return
+            label = DeviceIdentity.labelOf(active)
+        }
         if (key == lastEmittedKey) return
         lastEmittedKey = key
         Log.d(TAG, "Active output → $key ($label)")
