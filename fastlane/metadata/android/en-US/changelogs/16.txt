@@ -1,0 +1,7 @@
+- Pixel Compatibility Mode (experimental): caps DP bands at 32 to fix the EQ not applying on devices whose audio HAL only renders 32 bands (Google Pixels mainly). Defaults on for Pixel devices and power-cycles the DP when toggled.
+- MBC Volume Tether (experimental, issue #63): MBC thresholds follow media volume so compression behaves the same at any volume level.
+- MBC now supports up to 8 bands, with the same add/remove flow as the filter bands (issue #62).
+- Device profile switching overhaul (issue #62): presets now carry MBC + limiter settings so switching devices swaps the whole chain, and on Android 13+ the app reads the actual routed output from live playback instead of guessing.
+- Simple & Graphic modes retired to legacy — Parametric and Table remain, and the graph grew taller with the extra space.
+- DP changes are now rate-limited, preventing stutter/glitches while dragging bands (issue #61).
+- Fixes: table filter sheet invisible in light mode (issue #66); notification not hiding when the EQ is off (issue #64); the EQ restores itself if the OS kills the service (issue #73); DP band count display now syncs with compatibility mode.
