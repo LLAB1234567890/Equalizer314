@@ -30,18 +30,20 @@ android {
     }
 
     buildTypes {
-        release {
-            isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("release")
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
-            // Note: on AGP 8.3+, also set `vcsInfo { include = false }` here for
-            // F-Droid reproducibility. Current AGP 8.2.0 doesn't embed VCS info
-            // by default, so no disabling is needed yet.
-        }
+    debug {
+        applicationIdSuffix = ".coloros"
+        versionNameSuffix = "-coloros"
     }
+
+    release {
+        isMinifyEnabled = false
+        signingConfig = signingConfigs.getByName("release")
+        proguardFiles(
+            getDefaultProguardFile("proguard-android-optimize.txt"),
+            "proguard-rules.pro"
+        )
+    }
+}
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_1_8
