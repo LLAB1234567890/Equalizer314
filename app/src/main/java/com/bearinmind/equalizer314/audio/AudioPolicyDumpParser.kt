@@ -62,7 +62,12 @@ object AudioPolicyDumpParser {
     }
 
     private fun dumpInternal(context: Context, timeoutMs: Long): Map<String, Set<Int>> {
-        val binder = obtainAudioBinder() ?: return emptyMap()
+        val binder = obtainAudioBinder()
+if (binder == null) {
+    Log.w(TAG, "audio binder is null")
+    return emptyMap()
+}
+Log.d(TAG, "audio binder acquired: ${binder.javaClass.name}")
         val pipe = ParcelFileDescriptor.createPipe()
         val readFd = pipe[0]
         val writeFd = pipe[1]
@@ -79,6 +84,7 @@ object AudioPolicyDumpParser {
         val deadline = System.currentTimeMillis() + timeoutMs
         val unmatched = mutableListOf<String>()
         val uidToSessions = mutableMapOf<Int, MutableSet<Int>>()
+        var lineCount = 0
 
         try {
             BufferedReader(FileReader(readFd.fileDescriptor)).use { reader ->
@@ -88,6 +94,7 @@ object AudioPolicyDumpParser {
                         break
                     }
                     val line = reader.readLine() ?: break
+                    lineCount++
                     if (tryParsePowerampLine(line, uidToSessions)) continue
                     if (tryParseWaveletLine(line, uidToSessions)) continue
                     // Sample unrecognised lines for format-drift triage (debug builds only).
@@ -104,6 +111,10 @@ object AudioPolicyDumpParser {
             Log.d(TAG, "no rows matched; first ${unmatched.size} unmatched lines for triage:")
             unmatched.forEach { Log.d(TAG, "  | $it") }
         }
+        Log.d(
+    TAG,
+    "audio dump finished: lines=$lineCount parsedSessions=${uidToSessions.values.sumOf { it.size }}"
+)
 
         return resolveUidsToPackages(context, uidToSessions)
     }
