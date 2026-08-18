@@ -36,9 +36,14 @@ object AudioPolicyDumpParser {
     private val POWERAMP_UID_PID: Pattern =
         Pattern.compile("u/pid:(\\d+)/(\\d+)")
 
-    /** Pulls `session ID: <N>` (capital ID, spaced), the form audioserver uses in `AudioPlaybackConfiguration.toString()`. */
+    /** Pulls session ids from variants such as:
+ *  `session ID: <N>`, `sessionId:<N>`, and `session:<N>`.
+ */
     private val POWERAMP_SESSION: Pattern =
-        Pattern.compile("session ID:\\s*(\\d+)")
+    Pattern.compile(
+        "session(?:\\s*ID)?\\s*:\\s*(\\d+)",
+        Pattern.CASE_INSENSITIVE
+    )
 
     /** Dumps the audio service, returning playing apps grouped by package name. Each app may have
      *  multiple concurrent sessions (e.g. ExoPlayer pre-buffering the next track).
