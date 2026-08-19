@@ -97,42 +97,7 @@ class EqService : Service() {
          *  cycle. [EXTRA_DETECTED_BUNDLE]: keys = package names, values =
          *  `int[]` session IDs; routed to
          *  [SessionEffectManager.observeDetectedPlayback]. */
-        ACTION_PLAYBACK_DETECTED -> {
-    if (!safeStartForeground()) return START_NOT_STICKY
-
-    val bundle = intent.getBundleExtra(EXTRA_DETECTED_BUNDLE)
-    val detected = mutableMapOf<String, Set<Int>>()
-    var playingNow: Set<String> = emptySet()
-
-    if (bundle != null) {
-        for (key in bundle.keySet()) {
-            if (key == EXTRA_PLAYING_PACKAGES_KEY) {
-                playingNow = bundle.getStringArray(key)?.toSet().orEmpty()
-                continue
-            }
-
-            val ints = bundle.getIntArray(key) ?: continue
-            detected[key] = ints.toSet()
-        }
-    }
-
-    Log.d(
-        TAG,
-        "ACTION_PLAYBACK_DETECTED: bundleKeys=${bundle?.keySet()} " +
-            "detected=$detected playing=$playingNow"
-    )
-
-    val manager = sessionEffects
-    Log.d(
-        TAG,
-        "ACTION_PLAYBACK_DETECTED: sessionEffects=" +
-            if (manager == null) "NULL" else "READY"
-    )
-
-    manager?.observeDetectedPlayback(detected, playingNow)
-
-    return START_STICKY
-}
+        const val ACTION_PLAYBACK_DETECTED = "com.bearinmind.equalizer314.PLAYBACK_DETECTED"
         const val EXTRA_DETECTED_BUNDLE = "detected_bundle"
         /** Reserved key inside [EXTRA_DETECTED_BUNDLE]: String[] of packages
          *  in `PlaybackState.STATE_PLAYING`. '_' prefix can't collide with

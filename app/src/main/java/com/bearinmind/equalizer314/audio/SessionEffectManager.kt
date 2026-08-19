@@ -96,7 +96,8 @@ class SessionEffectManager(private val context: Context) {
      *  [observeDetectedPlayback]); consulted when building an
      *  [ActiveSession] so the speaker pulse tracks real-time playback. */
     private var playingPackages: Set<String> = emptySet()
-    private val eqPrefs = EqPrefe
+    private val eqPrefs = EqPreferencesManager(context)
+
     @Synchronized
     fun getActiveSessions(): List<ActiveSession> = sessionInfo.values.toList()
 
